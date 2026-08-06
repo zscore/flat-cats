@@ -1,0 +1,8 @@
+# Direct dependencies. Everything else in .venv is pulled in by these.
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+numpy==2.4.6
+pillow==12.3.0
+scipy==1.18.0
+rembg==2.0.77
+torch==2.13.0
+transformers==5.14.1

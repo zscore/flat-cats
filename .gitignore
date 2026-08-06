@@ -1,9 +1,8 @@
-node_modules/
-dist/
+.venv/
+.cache/
+__pycache__/
+*.pyc
 .DS_Store
 
-# Review artifacts — regenerate them, don't commit them.
-board/
-clips/
-*.mp4
-*.webm
+# Derived — regenerate with segment.py / sheet.py, don't commit.
+out/
