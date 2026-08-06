@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+
+# Review artifacts — regenerate them, don't commit them.
+board/
+clips/
+*.mp4
+*.webm

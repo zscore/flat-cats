@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tidewater — studio</title>
+    <style>
+      :root {
+        --bg: #0d1215;
+        --panel: #141c21;
+        --line: #26343b;
+        --text: #d6e3e7;
+        --dim: #7f959d;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+        font: 400 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 18px 20px 48px; }
+
+      header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+      header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; }
+      header .sub { color: var(--dim); font-size: 12px; }
+
+      .stage { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; align-items: start; }
+      #preview { width: 100%; aspect-ratio: 16 / 9; display: block; border-radius: 6px; background: #000; }
+
+      .readout {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+        padding: 12px 14px; font: 400 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .readout .k { color: var(--dim); display: inline-block; min-width: 92px; }
+      .readout .now { font-size: 15px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+      .controls { display: flex; gap: 8px; align-items: center; margin: 14px 0 10px; flex-wrap: wrap; }
+      button {
+        background: var(--panel); color: var(--text); border: 1px solid var(--line);
+        border-radius: 5px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer;
+      }
+      button:hover { border-color: #3d5560; }
+      button[disabled] { opacity: 0.4; cursor: default; }
+      .hint { color: var(--dim); font-size: 12px; margin-left: auto; }
+
+      .board { display: grid; grid-auto-flow: column; gap: 3px; margin: 6px 0 2px; }
+      .board figure { margin: 0; position: relative; cursor: pointer; min-width: 0; }
+      .board img {
+        width: 100%; display: block; border-radius: 3px; background: #05090b;
+        aspect-ratio: 16 / 9; object-fit: cover;
+        outline: 1px solid transparent; transition: outline-color 90ms;
+      }
+      .board figure:hover img { outline-color: #6fb2c4; }
+      .board figcaption {
+        position: absolute; left: 3px; bottom: 2px; font-size: 9px; color: #cfe0e4;
+        text-shadow: 0 1px 2px #000; pointer-events: none; letter-spacing: 0.03em;
+      }
+
+      #timeline { width: 100%; display: block; cursor: crosshair; border-radius: 6px; }
+
+      .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); font-size: 11px; margin-top: 10px; }
+      .legend span { display: inline-flex; align-items: center; gap: 5px; }
+      .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+      .note {
+        margin-top: 22px; padding: 12px 14px; border-left: 2px solid var(--line);
+        color: var(--dim); font-size: 12px; line-height: 1.7; max-width: 70ch;
+      }
+      .note code { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>tidewater</h1>
+        <span class="sub">studio — this page is a drawing of <code>score/score.js</code></span>
+      </header>
+
+      <div class="stage">
+        <canvas id="preview"></canvas>
+        <div class="readout" id="readout"></div>
+      </div>
+
+      <div class="controls">
+        <button id="play">▶ play</button>
+        <button id="board">redraw thumbnails</button>
+        <span class="hint">click the timeline to scrub · click a thumbnail to jump there</span>
+      </div>
+
+      <div class="board" id="thumbs"></div>
+      <canvas id="timeline"></canvas>
+      <div class="legend" id="legend"></div>
+
+      <p class="note">
+        Everything above is read from <code>score/score.js</code> — the sections, their
+        lengths, who plays in each, the two curves, the colours. Change a number in that
+        file and this page redraws on save. Nothing here is a separate copy of the piece
+        that could drift out of date with it.
+      </p>
+    </div>
+    <canvas id="thumbcanvas" width="320" height="180" style="display:none"></canvas>
+    <script type="module" src="/src/studio/studio.js"></script>
+  </body>
+</html>
