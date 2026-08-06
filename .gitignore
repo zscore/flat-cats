@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Derived — regenerate with segment.py / sheet.py, don't commit.
+# Derived — regenerate with segment.py / sheet.py / pick.mjs, don't commit.
 out/
+public/meows/
