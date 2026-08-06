@@ -53,9 +53,9 @@ IDX = {n: i for i, n in enumerate(NAMES)}
 COARSE = [
     ("head",  "the head and face of the cat",                        1.00),
     ("ear",   "the pointed triangular ears on top of the cat's head", 1.20),
-    ("torso", "the torso of the cat, its back, chest and belly",      0.95),
-    ("leg",   "the four legs of the cat",                             1.15),
-    ("paw",   "the paws and toes at the very ends of the cat's legs", 1.05),
+    ("torso", "the body of the cat: its back, chest, shoulders, belly", 1.15),
+    ("leg",   "the slender limbs of the cat between body and paw",     1.05),
+    ("paw",   "the paws and toes at the very ends of the cat's legs", 0.80),
     ("tail",  "the long thin tail of the cat",                        1.10),
 ]
 
@@ -63,7 +63,7 @@ COARSE = [
 # cheek and forehead fur that should stay labelled head.
 FINE = [
     ("eye",    "the eyes of the cat, the eyeballs and pupils",  1.10),
-    ("muzzle", "the nose, snout and mouth of the cat",          1.25),
+    ("muzzle", "the nose, snout and mouth of the cat",          1.10),
     ("ear",    "the pointed ears of the cat",                   1.00),
     ("head",   "the furry cheeks, forehead and skull of the cat", 1.00),
 ]
@@ -217,6 +217,26 @@ def parts(images, thresh=0.5):
     return stats
 
 
+def suspects(coverage, shares):
+    """Name the images the pipeline probably got wrong, rather than letting
+    them sit unremarked in a folder of 40. Cheap heuristics, not ground truth."""
+    out = {}
+    for k, cov in coverage.items():
+        why = []
+        if cov < 0.02:
+            why.append(f"matte almost empty ({cov:.1%}) -- cat likely missed")
+        elif cov > 0.70:   # a legitimate close-up can fill 60% of the frame
+            why.append(f"matte covers {cov:.0%} of frame -- background likely kept")
+        s = shares.get(k)
+        if s is None:
+            why.append("no part labels")
+        elif s.get("head", 0) < 0.03:
+            why.append("no head found -- part labels unreliable")
+        if why:
+            out[k] = "; ".join(why)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", choices=["fg", "parts", "all"], default="all")
@@ -237,8 +257,14 @@ def main():
     p = OUT / "report.json"
     old = json.loads(p.read_text()) if p.exists() else {}
     old.update(report)
+    old["suspect"] = suspects(old.get("coverage", {}), old.get("parts", {}))
     p.write_text(json.dumps(old, indent=2))
+
     print(f"\nwrote {p}")
+    if old["suspect"]:
+        print(f"{len(old['suspect'])} image(s) need a human eye:")
+        for k, why in sorted(old["suspect"].items()):
+            print(f"  {k}: {why}")
 
 
 if __name__ == "__main__":
