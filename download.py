@@ -55,6 +55,18 @@ REJECT = re.compile(
     r"coat of arms|diagram|chart|scan|document|cattle|bobcat|wildcat|lynx|"
     r"tiger|lion|leopard|cheetah|jaguar|cougar|panther", re.I)
 
+# REJECT reads titles, and a title is not always enough: a Baroque portrait, a
+# 1947 picture-book cover, an 8th-century Shiva and a faience hippopotamus all
+# arrived with titles that say nothing wrong, because Commons matched them on
+# their descriptions instead. What they have in common is not a word in the
+# title, it is a Commons category -- so this reads the categories.
+#
+# Matched at the START of a category name, not anywhere inside it. "Artworks
+# with Wikidata item" is an artwork; "Cats and books" is a cat.
+NOT_A_PHOTO = re.compile(
+    r"^(artworks?\b|books$|picture books$|paintings\b|sculptures\b|"
+    r"author died more than 100 years ago)", re.I)
+
 
 def api(**params):
     params.update(action="query", format="json")
@@ -89,6 +101,12 @@ def fetch(url, tries=5):
 
 def plain(html):
     return re.sub(r"<[^>]+>", "", html or "").strip()
+
+
+def categories(meta):
+    """The file's Commons categories, as a list. Pipe-separated in the API."""
+    raw = plain(meta.get("Categories", {}).get("value", ""))
+    return [c.strip() for c in raw.split("|") if c.strip()]
 
 
 def candidates():
@@ -132,6 +150,10 @@ def main():
             continue
         if REJECT.search(title):
             rejected["not-a-house-cat"] = rejected.get("not-a-house-cat", 0) + 1
+            continue
+        art = next((c for c in categories(meta) if NOT_A_PHOTO.match(c)), None)
+        if art:
+            rejected["not-a-photograph"] = rejected.get("not-a-photograph", 0) + 1
             continue
         w, h = ii.get("width", 0), ii.get("height", 0)
         if min(w, h) < MIN_SIDE or max(w, h) / max(1, min(w, h)) > 2.0:
