@@ -16,6 +16,7 @@
  */
 
 import { tailBurst } from './tail.js';
+import { faceBurst } from './face.js';
 
 const LIFE = 1.25; // seconds a cat stays on screen
 const ATTACK = 0.06; // seconds to fade in
@@ -56,6 +57,13 @@ const load = (files) =>
 
 const cats = await load(manifest.cats.map((c) => c.file));
 const tails = await load(manifest.tails.map((t) => t.file));
+
+// The face burst reaches for parts by filename — cat_47's head, cat_65's eyes —
+// so these are loaded into a map rather than a list. Muzzles are staged but not
+// loaded: every chimera keeps its host's own, so nothing ever draws one.
+const faces = manifest.faces ?? [];
+const faceFiles = faces.flatMap((f) => [f.head.file, ...f.eyes.map((p) => p.file), ...f.ears.map((p) => p.file)]);
+const faceImages = Object.fromEntries((await load(faceFiles)).map((img, i) => [faceFiles[i], img]));
 
 // ----------------------------------------------------------------- arrange --
 
@@ -98,6 +106,12 @@ sprites.sort((a, b) => a.t - b.t);
 // here to fire it again. Its tail is made of the seven real tails tails.py cut
 // out of the set.
 const BURSTS = [20];
+
+// The face burst says where it goes the same way, and gets its own slot rather
+// than sharing one with the tail. Two bursts at once is more than the frame can
+// hold, and a time is easier to move than two pieces are to untangle. The tail
+// burst runs 26s from 20s, so anything before 46 lands on top of it.
+const FACE_BURSTS = [50];
 
 // The cat it happens to has to be one we got a tail out of — the fan hangs off
 // that cat's own tail, so it needs the root and heading tails.py measured — and
@@ -164,6 +178,7 @@ function draw(t) {
   }
 
   for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat, tails);
+  for (const at of FACE_BURSTS) faceBurst(ctx, W, H, t - at, faces, faceImages);
   return shown;
 }
 
