@@ -1,11 +1,12 @@
 /**
  * tail.js — the tail burst: one cat, and then nine, and then rather more.
  *
- * Twenty-six seconds of choreography driven entirely by `since`, the seconds
+ * Thirty seconds of choreography driven entirely by `since`, the seconds
  * elapsed since the burst was triggered:
  *
  *   open    the cat, and the one tail it actually has
  *   fan     eight more swing out of the same join, the way the fox has them
+ *   grow    they lengthen, and nothing else changes while they do
  *   sway    each one swings, lagging the one beside it
  *   weave   finer waves ride on the big ones, three octaves deep
  *   branch  every tail forks, and at the peak the forks fork
@@ -23,7 +24,7 @@
  * later and you get the identical frame. Keep it that way.
  */
 
-export const BURST_LENGTH = 26; // seconds, start to nothing on screen
+export const BURST_LENGTH = 30; // seconds, start to nothing on screen
 
 const FAN = 9; // the fox's nine
 const OCTAVES = 3; // how many times the waves subdivide
@@ -42,20 +43,21 @@ const ramp = (x, a, b) => smooth((x - a) / (b - a));
  */
 function score(s) {
   const fan = ramp(s, 1.4, 5.0);
-  const weave = ramp(s, 7.0, 12.0);
-  const fork = ramp(s, 11.0, 15.5) * (1 - ramp(s, 20.0, 23.5));
-  const home = ramp(s, 21.0, 25.0);
+  const grow = ramp(s, 5.2, 10.0);
+  const weave = ramp(s, 10.5, 15.5);
+  const fork = ramp(s, 14.5, 19.0) * (1 - ramp(s, 23.5, 27.0));
+  const home = ramp(s, 24.5, 29.0);
   return {
-    alpha: ramp(s, 0, 1.2) * (1 - ramp(s, 25.0, BURST_LENGTH)),
+    alpha: ramp(s, 0, 1.2) * (1 - ramp(s, 29.0, BURST_LENGTH)),
     // How present the eight extra tails are. They fade up as they separate and
     // dissolve at the end of the close — without that, nine tails converging on
     // one line composite into something denser than the tail we opened on.
-    extra: ramp(s, 1.4, 3.4) * (1 - ramp(s, 23.4, 24.8)),
+    extra: ramp(s, 1.4, 3.4) * (1 - ramp(s, 27.4, 28.8)),
     // Half-angle of the fan. Opens as the tails appear, opens further into the
     // weave, shuts to nothing on the way home.
     fan: (0.62 + 0.43 * weave) * fan * (1 - home),
     // How far the tip swings, as a fraction of the tail's own length.
-    swing: (0.10 * ramp(s, 4.2, 6.4) + 0.12 * weave) * (1 - 0.6 * home),
+    swing: (0.10 * ramp(s, 6.0, 9.0) + 0.12 * weave) * (1 - 0.6 * home),
     // Waves along one tail, and how many times they subdivide. One octave is a
     // swaying tail; three is the weave, with detail at three scales at once.
     waves: 0.8 + 1.4 * weave * (1 - home),
@@ -66,8 +68,12 @@ function score(s) {
     fork,
     // The forks fork, but only at the peak — it is four times the drawing.
     depth: fork > 0.8 ? 2 : 1,
-    cull: ramp(s, 18.5, 21.0),
-    reach: 0.85 + 0.15 * fan,
+    cull: ramp(s, 21.0, 23.5),
+    // Length. The fan opens at a length that is already a tail and then the
+    // tails grow past it, which is a stage of its own — nothing else changes
+    // while they do it. Opening much shorter than this leaves the first few
+    // seconds with a stub too short to hold even one cat tail in it.
+    reach: 0.75 + 0.40 * grow,
   };
 }
 
