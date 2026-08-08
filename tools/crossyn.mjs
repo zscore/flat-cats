@@ -41,7 +41,7 @@ const arg = (k, d) => {
  * isolation. Swapping the names here swaps which cat is on which synth.
  */
 const BANDS = [
-  { name: 'low',  hi:  260,      voice: 'isolation', for: 'bass, sub' },
+  { name: 'low',  hi:  260,      voice: 'purr',      for: 'bass, sub' },
   { name: 'mid',  hi: 1400,      voice: 'brush',     for: 'pads, chords, body' },
   { name: 'high', hi: Infinity,  voice: 'food',      for: 'leads, plucks, air' },
 ];
@@ -91,16 +91,41 @@ const MIN_CONTRAST_DB = 24;
 // ------------------------------------------------------------- the meow bank --
 
 /**
- * Every meow of one voice, as a sequence of log-magnitude envelopes already
- * regridded onto the song's bins. Precomputed because the same 8 or so meows
- * get retriggered hundreds of times and their envelopes never change.
+ * One list of samples out of two banks that do not share a format.
+ *
+ * pick.mjs writes public/meows/manifest.json with a measured f0 per file;
+ * sounds.py writes sounds/credits.json with a licence per file and no f0 at
+ * all, because a purr's pitch is not a thing pick.mjs was ever asked to find.
+ * Rather than make either side pretend to be the other, this flattens both to
+ * the three fields the renderer actually uses — where it is, what it is called,
+ * which voice it belongs to — and lets f0 be absent.
  */
-function loadVoice(dir, manifest, voice, sr) {
+function loadBank(meowDir, soundDir) {
+  const out = [];
+  if (existsSync(join(meowDir, 'manifest.json'))) {
+    for (const m of JSON.parse(readFileSync(join(meowDir, 'manifest.json'), 'utf8'))) {
+      out.push({ dir: meowDir, name: m.name, voice: m.voice, f0: m.f0 });
+    }
+  }
+  if (existsSync(join(soundDir, 'credits.json'))) {
+    for (const s of JSON.parse(readFileSync(join(soundDir, 'credits.json'), 'utf8'))) {
+      out.push({ dir: soundDir, name: s.file, voice: s.voice });
+    }
+  }
+  return out;
+}
+
+/**
+ * Every sample of one voice, as a sequence of log-magnitude envelopes already
+ * regridded onto the song's bins. Precomputed because the same handful of
+ * samples get retriggered hundreds of times and their envelopes never change.
+ */
+function loadVoice(manifest, voice, sr) {
   const bins = N / 2 + 1;
   const w = hann(MEOW_N);
   const meows = [], dropped = [];
   for (const m of manifest.filter((x) => x.voice === voice)) {
-    const { sr: msr, data } = readWav(join(dir, m.name));
+    const { sr: msr, data } = readWav(join(m.dir, m.name));
     // Smooth away this cat's own harmonic ripple, whose spacing is its f0.
     // Falls back to 250 Hz for a manifest without one rather than guessing high.
     const ord = order(msr, Math.max(250, (m.f0 || 0) * 1.1));
@@ -242,6 +267,7 @@ function render(chan, sr, voices, plan, edges) {
 const IN = arg('in', '');
 const OUT = resolve(arg('out', 'out/meowed.wav'));
 const BANK = resolve(arg('bank', 'public/meows'));
+const SOUNDS = resolve(arg('sounds', 'sounds'));
 
 if (!IN || !existsSync(IN)) {
   console.error('crossyn.mjs: pass --in=<song.wav>  (16-bit PCM WAV)');
@@ -252,9 +278,10 @@ if (extname(IN).toLowerCase() !== '.wav') {
     `  ffmpeg -i "${IN}" -acodec pcm_s16le "${IN.replace(/\.[^.]+$/, '.wav')}"`);
   process.exit(1);
 }
-if (!existsSync(join(BANK, 'manifest.json'))) {
-  console.error(`crossyn.mjs: no meow bank at ${BANK}. Build it first:\n` +
-    '  node tools/pick.mjs --src=<CatMeows dataset dir>');
+if (!existsSync(join(BANK, 'manifest.json')) && !existsSync(join(SOUNDS, 'credits.json'))) {
+  console.error(`crossyn.mjs: no bank at ${BANK} or ${SOUNDS}. Build one first:\n` +
+    '  node tools/pick.mjs --src=<CatMeows dataset dir>\n' +
+    '  python sounds.py');
   process.exit(1);
 }
 
@@ -267,7 +294,7 @@ try {
   process.exit(1);
 }
 
-const manifest = JSON.parse(readFileSync(join(BANK, 'manifest.json'), 'utf8'));
+const manifest = loadBank(BANK, SOUNDS);
 const { sr, channels, data } = song;
 const frames = Math.floor(data.length / channels);
 console.log(`${IN}: ${(frames / sr).toFixed(1)}s, ${channels}ch @ ${sr} Hz`);
@@ -285,7 +312,7 @@ for (let i = 0; i < frames; i++) {
   mono[i] = s / channels;
 }
 
-const voices = BANDS.map((b) => loadVoice(BANK, manifest, b.voice, sr));
+const voices = BANDS.map((b) => loadVoice(manifest, b.voice, sr));
 BANDS.forEach((b, i) => {
   if (!voices[i].length) {
     console.error(`crossyn.mjs: bank has no '${b.voice}' meows for the ${b.name} band`);
