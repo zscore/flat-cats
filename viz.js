@@ -15,6 +15,8 @@
  * per-frame rand() would make the scrubber quietly lie.
  */
 
+import { tailBurst } from './tail.js';
+
 const LIFE = 1.25; // seconds a cat stays on screen
 const ATTACK = 0.06; // seconds to fade in
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
@@ -87,6 +89,16 @@ const sprites = analysis.onsets.flatMap((onset, i) =>
 );
 sprites.sort((a, b) => a.t - b.t);
 
+// The tail burst is the one thing on screen that no note asked for, so it says
+// where it goes out loud: seconds into the song, and nothing else. Add a time
+// here to fire it again. It uses the best-matted cat in the cast — the burst
+// holds one cat still for thirteen seconds, which is long enough for a ragged
+// edge to be the only thing you look at.
+const BURSTS = [20];
+const burstCat = cats[manifest.cats.indexOf(
+  manifest.cats.reduce((a, b) => (b.coverage > a.coverage ? b : a)),
+)];
+
 // A cat can only be on screen for LIFE seconds, so the frame at time t needs
 // only the slice starting a little before t. Walk a cursor instead of scanning
 // all 1420 sprites every frame.
@@ -135,6 +147,8 @@ function draw(t) {
     ctx.restore();
     shown++;
   }
+
+  for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat);
   return shown;
 }
 
