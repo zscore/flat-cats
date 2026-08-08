@@ -4,6 +4,7 @@
 <style>
   html, body { margin: 0; height: 100%; background: #0b0b0d; overflow: hidden; }
   body { font: 12px ui-monospace, monospace; color: #6a6a72; letter-spacing: 0.04em; }
+  canvas { display: block; width: 100vw; height: 100vh; }
   #hud { position: fixed; left: 12px; bottom: 10px; pointer-events: none; }
   #hud b { color: #b9b9c2; font-weight: 500; }
 
@@ -24,6 +25,7 @@
   input[type=range] { width: 100%; accent-color: #8a8a99; }
   #tip { margin-bottom: 12px; color: #4e4e57; line-height: 1.5; }
 </style>
+<canvas id="c"></canvas>
 <div id="panel">
   <div id="tip">click anywhere to play · space pauses · ←/→ scrub · <b>h</b> hides this</div>
   <div id="knobs"></div>

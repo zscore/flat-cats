@@ -14,6 +14,7 @@
  */
 import { loadVoices, createSynth, planCats, MIX } from './synth.js';
 import { mountControls } from './controls.js';
+import { createStage } from './cats.js';
 
 const LOOKAHEAD = 0.15; // seconds of notes handed to Web Audio in advance
 const TICK = 25; // ms between scheduler wakeups
@@ -57,6 +58,11 @@ for (const n of score.notes) n.family = family.get(n.voice);
 // score at once — which cat suits a part is a question about that part's range,
 // not about any one note.
 planCats(synth.samples, score.notes);
+
+// The cats. Same animation viz.js draws, placed off these notes rather than
+// off a detector's guess at them — see cats.js. now() is its only clock, so it
+// scrubs and pauses with the audio and never accumulates between frames.
+const stage = await createStage(document.getElementById('c'), score.notes);
 
 // -------------------------------------------------------------------- clock --
 
@@ -104,10 +110,12 @@ function pause() {
 function frame() {
   const t = now();
   if (playing && t >= score.seconds) pause();
+  const shown = stage.draw(t);
   const sounding = score.notes[Math.max(0, cursor - 1)];
   hud.innerHTML =
     `<b>${t.toFixed(2)}s</b> / ${score.seconds}s · ${cursor}/${score.count} notes · ` +
-    `${ranked.length} voices · ${sounding ? `${sounding.hz.toFixed(0)}Hz deg ${sounding.degree}` : '—'} · ` +
+    `${shown} cats · ${stage.cast} in the cast · ` +
+    `${sounding ? `${sounding.hz.toFixed(0)}Hz deg ${sounding.degree}` : '—'} · ` +
     `${MIX.mapping} · ` +
     (playing ? 'playing' : 'click to play');
   requestAnimationFrame(frame);
