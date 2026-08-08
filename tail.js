@@ -7,7 +7,7 @@
  *   open    the cat, and the one tail it actually has
  *   fan     eight more swing out of the same join, the way the fox has them
  *   grow    they lengthen, and nothing else changes while they do
- *   sway    each one swings, lagging the one beside it
+ *   sway    the whole fan swings as one, fading in and out together
  *   weave   finer waves ride on the big ones, three octaves deep
  *   branch  every tail forks, and at the peak the forks fork
  *   play    all of it moving at once
@@ -30,6 +30,12 @@ const FAN = 9; // the fox's nine
 const OCTAVES = 3; // how many times the waves subdivide
 const FORK = 0.44; // radians a fork leaves its parent by
 const SWAY_HZ = 0.34; // full swings per second
+const BREATH_HZ = 0.14; // fades per second, shared by every tail
+const BREATH_DEPTH = 0.45; // how far down the fade takes them
+// Radians of sway each tail owes its neighbour. Zero means the fan swings as
+// one thing, which is the point. Small values read as a wave travelling across
+// the fan; by about 1.0 it stops looking like one animal.
+const LAG = 0;
 const TAU = Math.PI * 2;
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -53,6 +59,9 @@ function score(s) {
     // dissolve at the end of the close — without that, nine tails converging on
     // one line composite into something denser than the tail we opened on.
     extra: ramp(s, 1.4, 3.4) * (1 - ramp(s, 27.4, 28.8)),
+    // One slow fade, shared by every tail, so they go dim and come back
+    // together rather than each on its own clock.
+    breath: 1 - BREATH_DEPTH * (0.5 - 0.5 * Math.cos(TAU * BREATH_HZ * s)),
     // Half-angle of the fan. Opens as the tails appear, opens further into the
     // weave, shuts to nothing on the way home.
     fan: (0.62 + 0.43 * weave) * fan * (1 - home),
@@ -62,9 +71,7 @@ function score(s) {
     // swaying tail; three is the weave, with detail at three scales at once.
     waves: 0.8 + 1.4 * weave * (1 - home),
     octaves: 1 + (OCTAVES - 1) * weave * (1 - home),
-    // Phase owed by each tail to its neighbour. At zero the fan moves as one
-    // sheet; opened up, the tails cross each other and the weave appears.
-    lag: (0.30 * fan + 1.15 * weave) * (1 - home),
+    lag: LAG * (1 - home),
     fork,
     // The forks fork, but only at the peak — it is four times the drawing.
     depth: fork > 0.8 ? 2 : 1,
@@ -91,9 +98,12 @@ function centreline(u, p) {
   let bend = 0;
   let amp = p.swing;
   let freq = p.waves;
+  // One phase for every octave. Give them their own and the fine waves crawl
+  // against the coarse ones, which is a lot of movement that reads as noise
+  // rather than as a tail swinging.
   for (let o = 0; o < OCTAVES; o++) {
     const w = clamp01(p.octaves - o);
-    if (w > 0) bend += Math.sin(TAU * freq * u + p.phase * (1 + o * 0.6)) * amp * w * u;
+    if (w > 0) bend += Math.sin(TAU * freq * u + p.phase) * amp * w * u;
     amp *= 0.5;
     freq *= 2.15;
   }
@@ -189,7 +199,9 @@ function limb(ctx, p, depth) {
     ctx.rotate(join.angle + side * FORK * p.fork);
     limb(
       ctx,
-      { ...p, len: p.len * 0.46 * p.fork, thick: p.thick * 0.66, seq: p.seq + (side > 0 ? 2 : 5), phase: p.phase + side * 1.3 },
+      // Same phase as the parent: a fork that swings against the tail it grows
+      // out of looks detached from it.
+      { ...p, len: p.len * 0.46 * p.fork, thick: p.thick * 0.66, seq: p.seq + (side > 0 ? 2 : 5), phase: p.phase },
       depth + 1,
     );
     ctx.restore();
@@ -260,8 +272,9 @@ export function tailBurst(ctx, W, H, since, cat, tails) {
 
     ctx.save();
     // Outer tails sit back a little, so the fan reads as depth rather than as
-    // nine equally insistent tails.
-    ctx.globalAlpha *= here * (0.6 + 0.4 / (1 + Math.abs(rank)));
+    // nine equally insistent tails. The breath is on the eight — the cat's own
+    // tail holds steady, so the fade always has something to come back to.
+    ctx.globalAlpha *= here * (0.6 + 0.4 / (1 + Math.abs(rank))) * (rank === 0 ? 1 : p.breath);
     ctx.translate(place.ax, place.ay);
     ctx.rotate(place.base + (rank / half) * p.fan);
     limb(ctx, { ...shape, seq: i, phase: TAU * SWAY_HZ * since + rank * p.lag }, 0);
