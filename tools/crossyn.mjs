@@ -74,6 +74,20 @@ const ONSET_FLOOR_DB = -48;     // below this a "rise" is just noise coming back
 const SONG_ENV_HZ = 2600;
 const order = (sr, spacingHz) => Math.max(6, Math.min(60, Math.round(sr / spacingHz)));
 
+/**
+ * How much shape a sample's envelope has to have to be worth playing, measured
+ * as the 5th-to-95th percentile spread of its envelope across 200–3800 Hz.
+ *
+ * This started out as a rule about f0, on the theory that a high-pitched meow
+ * samples its own spectrum too coarsely to show a formant. The theory is sound
+ * and the rule was still wrong: measured against these 24 files, f0 and
+ * envelope contrast correlate at -0.08. A low order gives a SMOOTH envelope,
+ * which can still be a big broad hump — smoothness and flatness are not the
+ * same thing. So this measures the quantity it actually cares about instead of
+ * predicting it from one that turns out not to.
+ */
+const MIN_CONTRAST_DB = 24;
+
 // ------------------------------------------------------------- the meow bank --
 
 /**
@@ -84,20 +98,31 @@ const order = (sr, spacingHz) => Math.max(6, Math.min(60, Math.round(sr / spacin
 function loadVoice(dir, manifest, voice, sr) {
   const bins = N / 2 + 1;
   const w = hann(MEOW_N);
-  const meows = [];
+  const meows = [], dropped = [];
   for (const m of manifest.filter((x) => x.voice === voice)) {
     const { sr: msr, data } = readWav(join(dir, m.name));
     // Smooth away this cat's own harmonic ripple, whose spacing is its f0.
     // Falls back to 250 Hz for a manifest without one rather than guessing high.
     const ord = order(msr, Math.max(250, (m.f0 || 0) * 1.1));
     const frames = [];
+    let contrast = 0;
+    const lo = Math.round((200 / (msr / 2)) * (MEOW_N / 2));
+    const hi = Math.round((3800 / (msr / 2)) * (MEOW_N / 2));
     for (let s = 0; s + MEOW_N <= data.length; s += MEOW_HOP) {
       const { re, im } = frameFFT(data, s, w);
       const env = cepstralEnvelope(magnitudes(re, im), ord);
+      // Its loudest-shaped frame is what it will sound like when it fires.
+      const band = [...env.subarray(lo, hi)].sort((a, b) => a - b);
+      const spread = (band[Math.floor(0.95 * band.length)] - band[Math.floor(0.05 * band.length)]) * 8.6859;
+      if (spread > contrast) contrast = spread;
       frames.push(regridEnvelope(env, msr, bins, sr));
     }
+    // A sample flatter than this is a tone control, not a vowel: it tilts the
+    // song without ever sounding like a mouth. Dropped loudly, not averaged in.
+    if (contrast < MIN_CONTRAST_DB) { dropped.push(`${m.name} (${contrast.toFixed(0)} dB)`); continue; }
     if (frames.length) meows.push({ name: m.name, frames, hopSecs: MEOW_HOP / msr });
   }
+  if (dropped.length) console.log(`  ${voice}: dropped ${dropped.length} too flat to sound like a mouth — ${dropped.join(', ')}`);
   return meows;
 }
 
