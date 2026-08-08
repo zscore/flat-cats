@@ -5,15 +5,22 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Derived — regenerate with segment.py / sheet.py / pick.mjs, don't commit.
+# Derived — regenerate with segment.py / sheet.py / pick.mjs / midi.mjs.
 out/
 public/meows/
 public/viz/
+public/song/
 
 # Source audio dropped at the root to be processed. Big, and unlike images/ it
 # has no licence check standing behind it, so it does not go in the repo.
 /*.wav
 /*.mp3
+
+# The score, for the same reason as the audio. A MIDI of the etude is a
+# transcription of a composition somebody else wrote, and nothing here has
+# checked what may be done with it — which is exactly the check images/ and
+# sounds/ each get put through twice. It stays a local input.
+/*.mid
 
 # Agent scratch. Currently holds a git worktree — committing it would nest the
 # repo inside itself.
