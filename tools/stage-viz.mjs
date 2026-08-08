@@ -29,6 +29,8 @@ const REPORT = resolve(arg('report', 'out/report.json'));
 const ONSETS = resolve(arg('onsets', 'out/onsets.json'));
 const TAILS = resolve(arg('tails', 'out/tails'));
 const TAILS_JSON = resolve(arg('tails-json', 'out/tails.json'));
+const FACES = resolve(arg('faces', 'out/faces'));
+const FACES_JSON = resolve(arg('faces-json', 'out/faces.json'));
 // Default to whatever onsets.json was actually measured on. The meowed and
 // triggered renders in out/ are built from the untrimmed original, which is
 // 4.35s longer at the head — play one of those against these onsets and every
@@ -43,6 +45,8 @@ for (const [label, path, fix] of [
   ['onsets', ONSETS, 'tools/onsets.mjs'],
   ['tails', TAILS, 'tails.py'],
   ['tails.json', TAILS_JSON, 'tails.py'],
+  ['faces', FACES, 'faces.py'],
+  ['faces.json', FACES_JSON, 'faces.py'],
   ['song', SONG, null],
 ]) {
   if (!existsSync(path)) {
@@ -105,18 +109,41 @@ if (!tails.length) {
 }
 for (const t of tails) copyFileSync(join(TAILS, basename(t.file)), join(OUT, t.file));
 
+// The face burst needs cats that can both host a chimera and donate to one, so
+// it takes only the complete faces — two eyes, two ears, a muzzle. A cat with
+// one ear could still host, but keeping track of which cats may appear in which
+// role is more bookkeeping than the extra few faces are worth.
+const faces = JSON.parse(readFileSync(FACES_JSON, 'utf8')).faces.filter(
+  (f) => f.eyes.length === 2 && f.ears.length === 2 && f.muzzle.length,
+);
+if (faces.length < 3) {
+  console.error(`only ${faces.length} complete faces in out/faces.json — the burst needs 3`);
+  process.exit(1);
+}
+mkdirSync(join(OUT, 'faces'), { recursive: true });
+for (const f of faces) {
+  for (const p of [f.head, ...f.eyes, ...f.ears, ...f.muzzle]) {
+    copyFileSync(join(FACES, p.file), join(OUT, 'faces', p.file));
+    p.file = `faces/${p.file}`;
+  }
+}
+
 writeFileSync(join(OUT, 'onsets.json'), JSON.stringify(analysis));
 copyFileSync(SONG, join(OUT, 'song.wav'));
 
 writeFileSync(
   join(OUT, 'manifest.json'),
-  JSON.stringify({ song: 'song.wav', onsets: 'onsets.json', source: basename(SONG), cats: kept, tails }, null, 2) + '\n',
+  JSON.stringify(
+    { song: 'song.wav', onsets: 'onsets.json', source: basename(SONG), cats: kept, tails, faces },
+    null,
+    2,
+  ) + '\n',
 );
 
 // ------------------------------------------------------------------ report --
 
 for (const [id, why] of dropped) console.log(`dropped ${id} — ${why}`);
 console.log(
-  `\nstaged ${kept.length} cats + ${tails.length} tails + ${analysis.count} onsets → public/viz/` +
+  `\nstaged ${kept.length} cats + ${tails.length} tails + ${faces.length} faces + ${analysis.count} onsets → public/viz/` +
     `\nsong ${basename(SONG)} ${seconds.toFixed(2)}s vs analysis ${analysis.seconds}s (${drift.toFixed(3)}s drift)`,
 );
