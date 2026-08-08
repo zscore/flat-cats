@@ -12,6 +12,7 @@ public/viz/
 # Source audio dropped at the root to be processed. Big, and unlike images/ it
 # has no licence check standing behind it, so it does not go in the repo.
 /*.wav
+/*.mp3
 
 # Agent scratch. Currently holds a git worktree — committing it would nest the
 # repo inside itself.
