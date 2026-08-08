@@ -1,27 +1,37 @@
 /**
- * tail.js — the tail burst: one cat, one tail, and then a great deal of tail.
+ * tail.js — the tail burst: one cat, and then nine, and then rather more.
  *
- * Thirteen seconds of choreography driven entirely by `since`, the seconds
+ * Twenty-six seconds of choreography driven entirely by `since`, the seconds
  * elapsed since the burst was triggered:
  *
- *   enter   a cat and its single tail
- *   split   the tail copies itself up and down the frame
- *   sway    every copy swings, each one lagging the one before it
- *   weave   the stack spreads and the copies cross through each other
- *   cull    every other copy drops out
- *   merge   what is left slides home and dissolves into the one tail
+ *   open    the cat, and the one tail it actually has
+ *   fan     eight more swing out of the same join, the way the fox has them
+ *   sway    each one swings, lagging the one beside it
+ *   weave   finer waves ride on the big ones, three octaves deep
+ *   branch  every tail forks, and at the peak the forks fork
+ *   play    all of it moving at once
+ *   cull    half the fan leaves
+ *   home    the fan closes, the forks retract, the octaves unwind, and what is
+ *           left is the tail the cat came with
+ *
+ * The fan hangs off the cat's own tail rather than off a point picked by hand:
+ * tails.py measures where each tail joins its cat and which way it leaves, and
+ * the middle tail of the fan continues the one in the photograph.
  *
  * Like draw() in viz.js this is a pure function of time — no counters, no
  * rand(), nothing carried between frames. Scrub back into the burst an hour
  * later and you get the identical frame. Keep it that way.
  */
 
-export const BURST_LENGTH = 13.6; // seconds, start to nothing on screen
+export const BURST_LENGTH = 26; // seconds, start to nothing on screen
 
-const COPIES = 9; // odd, so there is a middle tail to come home to
-const SWAY_HZ = 0.42; // full swings per second
+const FAN = 9; // the fox's nine
+const OCTAVES = 3; // how many times the waves subdivide
+const FORK = 0.44; // radians a fork leaves its parent by
+const SWAY_HZ = 0.34; // full swings per second
 const TAU = Math.PI * 2;
 
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const ramp = (x, a, b) => smooth((x - a) / (b - a));
 
@@ -31,47 +41,60 @@ const ramp = (x, a, b) => smooth((x - a) / (b - a));
  * change a number here rather than anywhere below.
  */
 function score(s) {
-  const split = ramp(s, 0.9, 3.0);
-  const weave = ramp(s, 5.0, 8.2);
-  const merge = ramp(s, 10.3, 12.6);
+  const fan = ramp(s, 1.4, 5.0);
+  const weave = ramp(s, 7.0, 12.0);
+  const fork = ramp(s, 11.0, 15.5) * (1 - ramp(s, 20.0, 23.5));
+  const home = ramp(s, 21.0, 25.0);
   return {
-    alpha: ramp(s, 0, 0.9) * (1 - ramp(s, 12.7, BURST_LENGTH)),
-    // How present the copies are at all. They fade up as they separate and
-    // dissolve at the end of the merge — without that, nine tails converging
-    // on one spot composite into something denser than the tail we opened on.
-    extra: ramp(s, 0.9, 2.2) * (1 - ramp(s, 11.5, 12.6)),
-    // Vertical gap between neighbours, as a fraction of frame height: opens at
-    // split, opens further at weave, closes to nothing at merge. The outermost
-    // copy sits four gaps out and swings on top of that, so this has to stay
-    // under about 0.075 or the ends of the stack leave the frame.
-    spread: (0.038 + 0.037 * weave) * split * (1 - merge),
+    alpha: ramp(s, 0, 1.2) * (1 - ramp(s, 25.0, BURST_LENGTH)),
+    // How present the eight extra tails are. They fade up as they separate and
+    // dissolve at the end of the close — without that, nine tails converging on
+    // one line composite into something denser than the tail we opened on.
+    extra: ramp(s, 1.4, 3.4) * (1 - ramp(s, 23.4, 24.8)),
+    // Half-angle of the fan. Opens as the tails appear, opens further into the
+    // weave, shuts to nothing on the way home.
+    fan: (0.62 + 0.43 * weave) * fan * (1 - home),
     // How far the tip swings, as a fraction of the tail's own length.
-    swing: (0.11 * ramp(s, 2.4, 4.0) + 0.14 * weave) * (1 - 0.55 * merge),
-    // Waves along a single tail. One is a swaying tail; three is a braid. The
-    // merge unwinds this too — otherwise the tail we come home to is a zigzag,
-    // not the tail we opened on.
-    waves: 0.8 + 2.2 * weave * (1 - merge),
-    // Phase owed by each copy to its neighbour. At zero the stack moves as one
-    // slab; opened up, the copies cross each other and the weave appears.
-    lag: (0.30 * split + 1.35 * weave) * (1 - merge),
-    // Every other copy leaves.
-    cull: ramp(s, 8.7, 10.0),
+    swing: (0.10 * ramp(s, 4.2, 6.4) + 0.12 * weave) * (1 - 0.6 * home),
+    // Waves along one tail, and how many times they subdivide. One octave is a
+    // swaying tail; three is the weave, with detail at three scales at once.
+    waves: 0.8 + 1.4 * weave * (1 - home),
+    octaves: 1 + (OCTAVES - 1) * weave * (1 - home),
+    // Phase owed by each tail to its neighbour. At zero the fan moves as one
+    // sheet; opened up, the tails cross each other and the weave appears.
+    lag: (0.30 * fan + 1.15 * weave) * (1 - home),
+    fork,
+    // The forks fork, but only at the peak — it is four times the drawing.
+    depth: fork > 0.8 ? 2 : 1,
+    cull: ramp(s, 18.5, 21.0),
+    reach: 0.85 + 0.15 * fan,
   };
 }
 
 // ---------------------------------------------------------------- geometry --
 
-// Local space: the root sits at the origin, the tail runs out along +x, and the
-// bend grows with u so the root stays put while the tip does the travelling.
+/**
+ * Local space: the join sits at the origin, the tail runs out along +x, and
+ * the bend grows with u so the join stays put while the tip does the
+ * travelling. The waves are summed over octaves — each one twice as fine and
+ * half as deep as the last, which is what makes the weave read as weave rather
+ * than as one big wobble.
+ */
 function centreline(u, p) {
-  // A resting arc that owes nothing to the swing, so the tail at 0.6s is a
-  // tail hanging there rather than a rod sticking out of a cat.
-  const rest = 0.07 * u * u;
-  const bend = Math.sin(TAU * p.waves * u + p.phase) * p.swing * u;
+  const rest = 0.06 * u * u; // a resting arc that owes nothing to the swing
+  let bend = 0;
+  let amp = p.swing;
+  let freq = p.waves;
+  for (let o = 0; o < OCTAVES; o++) {
+    const w = clamp01(p.octaves - o);
+    if (w > 0) bend += Math.sin(TAU * freq * u + p.phase * (1 + o * 0.6)) * amp * w * u;
+    amp *= 0.5;
+    freq *= 2.15;
+  }
   return [p.len * u, p.len * (rest + bend)];
 }
 
-// Thick at the root, tapering, rounded off rather than cut square at the tip.
+// Thick at the join, tapering, rounded off rather than cut square at the tip.
 function halfWidth(u, p) {
   return p.thick * (0.38 + 0.62 * (1 - u ** 1.6)) * Math.sqrt(Math.max(0, 1 - u ** 8));
 }
@@ -104,6 +127,8 @@ function at(pts, s) {
   };
 }
 
+// -------------------------------------------------------------------- draw --
+
 /**
  * One tail, made of tails: real cat tails from the set, laid head to tail
  * along the centreline, each turned to face the way the big tail is going.
@@ -114,20 +139,19 @@ function at(pts, s) {
  * thing that makes this worth doing — that they are visibly seven different
  * cats. They overlap by a quarter to hide the joins.
  */
-function ribbon(ctx, p) {
-  const pts = walk(p);
+function ribbon(ctx, p, pts) {
   const total = pts[pts.length - 1].s;
 
   for (let n = 0, s = 0; s < total && n < 24; n++) {
     const here = at(pts, s);
-    // Deterministic, and different per copy, so no two of the stacked tails
-    // are made of the same cats in the same order.
+    // Deterministic, and different per tail, so no two of them are made of the
+    // same cats in the same order.
     const img = p.tails[(n * 3 + p.seq * 5 + 1) % p.tails.length];
     const h = 2 * halfWidth(here.u, p);
     const w = h * (img.width / img.height);
     const step = w * 0.75;
     // Each piece is drawn centred half a step ahead, so without this the chain
-    // finishes a whole tail's length past the end of the curve it is following.
+    // finishes a whole tail's length past the end of the curve it follows.
     if (s + w > total) break;
 
     ctx.save();
@@ -140,46 +164,112 @@ function ribbon(ctx, p) {
   }
 }
 
-// -------------------------------------------------------------------- draw --
+/**
+ * A tail and everything growing out of it. The forks are the same function
+ * again on a shorter, thinner tail turned off the parent — which is the whole
+ * of the fractal, and the reason the pattern holds together at every scale
+ * instead of looking like two unrelated effects stacked up.
+ */
+function limb(ctx, p, depth) {
+  const pts = walk(p);
+  ribbon(ctx, p, pts);
+  if (depth >= p.depth || p.fork <= 0.02) return;
+
+  const join = at(pts, pts[pts.length - 1].s * 0.55);
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.globalAlpha *= p.fork;
+    ctx.translate(join.x, join.y);
+    ctx.rotate(join.angle + side * FORK * p.fork);
+    limb(
+      ctx,
+      { ...p, len: p.len * 0.46 * p.fork, thick: p.thick * 0.66, seq: p.seq + (side > 0 ? 2 : 5), phase: p.phase + side * 1.3 },
+      depth + 1,
+    );
+    ctx.restore();
+  }
+}
+
+/**
+ * Where the cat goes, and where its tail leaves it. If its tail heads left the
+ * whole cat is mirrored, so the fan always has the open half of the frame to
+ * grow into rather than the edge.
+ */
+function layout(W, H, cat) {
+  const h = 0.42 * H;
+  const w = h * (cat.img.width / cat.img.height);
+  const flip = Math.cos((cat.heading * Math.PI) / 180) < 0;
+  const rx = flip ? 1 - cat.root[0] : cat.root[0];
+  const head = ((flip ? 180 - cat.heading : cat.heading) * Math.PI) / 180;
+
+  // Position the join, not the cat: the join is what the fan is drawn around,
+  // and where it lands in the frame is the only placement that matters. Doing
+  // it the other way puts a cat whose tail leaves from low on its body — which
+  // is most of them — in the corner with nowhere to fan into.
+  const ax = 0.32 * W + Math.cos(head) * h * 0.10;
+  const ay = 0.47 * H + Math.sin(head) * h * 0.10;
+  return {
+    w, h, flip, ax, ay,
+    x: ax - rx * w - Math.cos(head) * h * 0.10,
+    y: ay - cat.root[1] * h - Math.sin(head) * h * 0.10,
+    base: head,
+  };
+}
 
 /**
  * Draw the burst. `since` is seconds since it was triggered — negative or past
- * the end and nothing is drawn. Returns whether anything was.
+ * the end and nothing is drawn. `cat` is {img, root, heading} — the picture and
+ * the two numbers tails.py measured about its tail. Returns whether anything
+ * was drawn.
  *
- *   tailBurst(ctx, canvas.width, canvas.height, t - 20, cat)
+ *   tailBurst(ctx, canvas.width, canvas.height, t - 20, burstCat, tails)
  */
 export function tailBurst(ctx, W, H, since, cat, tails) {
   if (since < 0 || since > BURST_LENGTH || !tails.length) return false;
   const p = score(since);
   if (p.alpha <= 0.001) return false;
 
-  const rootX = 0.32 * W;
-  const rootY = 0.5 * H;
-  // About twelve times as long as it is thick. Thinner than this and it reads
-  // as a whisker; the cat beside it is the scale you are judging it against.
-  const shape = { len: 0.44 * W, thick: 0.034 * H, waves: p.waves, swing: p.swing };
+  const place = layout(W, H, cat);
+  const shape = {
+    // Height is what bounds a wide fan, not width — at the full spread the
+    // outermost tails are throwing themselves at the top and bottom edges.
+    len: Math.min(0.36 * W, 0.46 * H) * p.reach,
+    thick: 0.030 * H,
+    waves: p.waves,
+    swing: p.swing,
+    octaves: p.octaves,
+    fork: p.fork,
+    depth: p.depth,
+    tails,
+  };
 
   ctx.save();
-  for (let i = 0; i < COPIES; i++) {
-    const rank = i - (COPIES - 1) / 2; // -4 … 4, the middle one being the original
+  ctx.globalAlpha = p.alpha;
+  const half = (FAN - 1) / 2;
+  for (let i = 0; i < FAN; i++) {
+    const rank = i - half; // -4 … 4, the middle one being the cat's own
     const odd = Math.abs(rank) % 2 === 1;
     const here = (rank === 0 ? 1 : p.extra) * (odd ? 1 - p.cull : 1);
     if (here <= 0.002) continue;
 
     ctx.save();
-    // Outer copies sit back a little, so the stack reads as depth rather than
-    // as nine equally insistent tails.
-    ctx.globalAlpha = p.alpha * here * (0.55 + 0.45 / (1 + Math.abs(rank)));
-    ctx.translate(rootX, rootY + rank * p.spread * H);
-    ribbon(ctx, { ...shape, tails, seq: i, phase: TAU * SWAY_HZ * since + rank * p.lag });
+    // Outer tails sit back a little, so the fan reads as depth rather than as
+    // nine equally insistent tails.
+    ctx.globalAlpha *= here * (0.6 + 0.4 / (1 + Math.abs(rank)));
+    ctx.translate(place.ax, place.ay);
+    ctx.rotate(place.base + (rank / half) * p.fan);
+    limb(ctx, { ...shape, seq: i, phase: TAU * SWAY_HZ * since + rank * p.lag }, 0);
     ctx.restore();
   }
 
-  // The cat goes on last, over the roots of the middle copies.
-  const h = 0.34 * H;
-  const w = h * (cat.width / cat.height);
+  // The cat goes on last, over the join every tail comes out of.
   ctx.globalAlpha = p.alpha;
-  ctx.drawImage(cat, rootX - w * 0.62, rootY - h / 2, w, h);
+  if (place.flip) {
+    ctx.translate(place.x + place.w / 2, 0);
+    ctx.scale(-1, 1);
+    ctx.translate(-(place.x + place.w / 2), 0);
+  }
+  ctx.drawImage(cat.img, place.x, place.y, place.w, place.h);
   ctx.restore();
   return true;
 }

@@ -52,18 +52,49 @@ def largest_blob(mask):
     return cc == (int(np.argmax(sizes)) + 1)
 
 
-def measure(mask):
-    """Area, elongation and axis angle from the blob's second moments.
+def measure(mask, body):
+    """Area, elongation, axis angle, and where the tail joins the cat.
 
     Second moments rather than the bounding box: a tail lying diagonally fills
     a near-square box, and would read as a blob to anything simpler.
+
+    `root` is the join, in fractions of the image, and `heading` is the
+    direction it leaves in, in degrees with y pointing down. Those two are what
+    let the page hang something off the cat's own tail instead of off a point
+    picked by hand that is only right for one cat. `body` is the centroid of
+    the cat minus its tail, which is how the join is told from the tip.
     """
     ys, xs = np.nonzero(mask)
-    cov = np.cov(np.vstack([xs - xs.mean(), ys - ys.mean()]))
+    cx, cy = xs.mean(), ys.mean()
+    cov = np.cov(np.vstack([xs - cx, ys - cy]))
     vals, vecs = np.linalg.eigh(cov)
     long_axis = vecs[:, int(np.argmax(vals))]
     elong = math.sqrt(max(vals) / max(min(vals), 1e-6))
-    return int(mask.sum()), elong, math.degrees(math.atan2(long_axis[1], long_axis[0]))
+
+    # Where the tail leaves the cat, and which way it goes. Project onto the
+    # long axis and ask which end is nearer the rest of the cat — that end is
+    # the join, by definition. Thickness is the tempting test and it is wrong
+    # about one tail in seven: a bushy tip measures fatter than the root.
+    along = (xs - cx) * long_axis[0] + (ys - cy) * long_axis[1]
+    band = 0.25 * (along.max() - along.min())
+    low, high = along < along.min() + band, along > along.max() - band
+    bx, by = body
+    root_is_low = (
+        math.dist((xs[low].mean(), ys[low].mean()), (bx, by))
+        <= math.dist((xs[high].mean(), ys[high].mean()), (bx, by))
+    )
+
+    end = low if root_is_low else high
+    root = (float(xs[end].mean()), float(ys[end].mean()))
+    heading = long_axis if root_is_low else -long_axis
+    h, w = mask.shape
+    return dict(
+        area=int(mask.sum()),
+        elong=elong,
+        angle=math.degrees(math.atan2(long_axis[1], long_axis[0])),
+        root=[round(root[0] / w, 4), round(root[1] / h, 4)],
+        heading=round(math.degrees(math.atan2(heading[1], heading[0])), 1),
+    )
 
 
 def trim(img):
@@ -104,13 +135,20 @@ def main():
 
     for path in sorted((OUT / "parts").glob("*.png")):
         stem = path.stem
-        mask = largest_blob(np.array(Image.open(path)) == TAIL)
+        labels = np.array(Image.open(path))
+        mask = largest_blob(labels == TAIL)
         if mask is None or mask.sum() < args.min_area:
             continue  # no tail label worth measuring; silent, it is most of them
-        area, elong, angle = measure(mask)
 
-        if elong < args.min_elong:
-            dropped.append((stem, f"elongation {elong:.1f} — a blob, not a tail"))
+        rest = (labels > 0) & ~mask  # the cat minus its tail
+        if not rest.any():
+            dropped.append((stem, "labelled all tail and no cat"))
+            continue
+        ry, rx = np.nonzero(rest)
+        m = measure(mask, (rx.mean(), ry.mean()))
+
+        if m["elong"] < args.min_elong:
+            dropped.append((stem, f"elongation {m['elong']:.1f} — a blob, not a tail"))
             continue
         if stem in REJECT:
             dropped.append((stem, REJECT[stem]))
@@ -119,14 +157,15 @@ def main():
         # Mask the cutout to the tail alone, then lay it flat.
         rgba = np.array(Image.open(OUT / "cutout" / f"{stem}.png").convert("RGBA"))
         rgba[..., 3] = np.where(mask, rgba[..., 3], 0)
-        img = flatten(Image.fromarray(rgba), angle)
+        img = flatten(Image.fromarray(rgba), m["angle"])
         if img is None:
             dropped.append((stem, "nothing opaque left after masking"))
             continue
 
         img.save(OUT / "tails" / f"{stem}.png")
-        kept.append(dict(id=stem, file=f"{stem}.png", area=area,
-                         elong=round(elong, 2), w=img.width, h=img.height))
+        kept.append(dict(id=stem, file=f"{stem}.png", area=m["area"],
+                         elong=round(m["elong"], 2), root=m["root"], heading=m["heading"],
+                         w=img.width, h=img.height))
 
     (OUT / "tails.json").write_text(json.dumps({"tails": kept}, indent=1) + "\n")
     for stem, why in dropped:

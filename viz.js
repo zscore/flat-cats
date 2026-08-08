@@ -99,17 +99,20 @@ sprites.sort((a, b) => a.t - b.t);
 // out of the set.
 const BURSTS = [20];
 
-// The cat it happens to is drawn from the cats we got a tail out of, and only
-// then by matte quality. Coverage alone picks a head-and-shoulders portrait —
-// the highest-coverage cat in the cast fills its frame because it is a close-up
-// — and thirteen seconds of a floating head growing tails is not the idea. A
-// cat we cut a tail from was, by construction, photographed whole.
-const withTails = new Set(manifest.tails.map((t) => t.id));
-const burstPick = (manifest.cats.filter((c) => withTails.has(c.id)).length
-  ? manifest.cats.filter((c) => withTails.has(c.id))
-  : manifest.cats
-).reduce((a, b) => (b.coverage > a.coverage ? b : a));
-const burstCat = cats[manifest.cats.indexOf(burstPick)];
+// The cat it happens to has to be one we got a tail out of — the fan hangs off
+// that cat's own tail, so it needs the root and heading tails.py measured — and
+// of those, the best matted. Coverage alone would pick a head-and-shoulders
+// portrait, since the highest-coverage cat in the cast fills its frame because
+// it is a close-up, and a floating head growing nine tails is not the idea.
+const byId = new Map(manifest.cats.map((c) => [c.id, c]));
+const burstTail = manifest.tails
+  .filter((t) => byId.has(t.id))
+  .reduce((a, b) => (byId.get(b.id).coverage > byId.get(a.id).coverage ? b : a));
+const burstCat = {
+  img: cats[manifest.cats.indexOf(byId.get(burstTail.id))],
+  root: burstTail.root,
+  heading: burstTail.heading,
+};
 
 // A cat can only be on screen for LIFE seconds, so the frame at time t needs
 // only the slice starting a little before t. Walk a cursor instead of scanning
