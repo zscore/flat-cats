@@ -12,7 +12,7 @@
  * the main thread. Anything drawing against this should ask now(), never count
  * frames.
  */
-import { loadVoices, createSynth, MIX } from './synth.js';
+import { loadVoices, createSynth, planCats, MIX } from './synth.js';
 import { mountControls } from './controls.js';
 
 const LOOKAHEAD = 0.15; // seconds of notes handed to Web Audio in advance
@@ -52,6 +52,11 @@ for (const n of score.notes) byVoice.set(n.voice, [...(byVoice.get(n.voice) ?? [
 const ranked = [...byVoice.entries()].map(([v, ds]) => [v, median(ds)]).sort((a, b) => a[1] - b[1]);
 const family = new Map(ranked.map(([v], i) => [v, FAMILIES[Math.floor((i / ranked.length) * 3)]]));
 for (const n of score.notes) n.family = family.get(n.voice);
+
+// Casting for 'cat-per-voice-fit'. Done once, here, because it needs the whole
+// score at once — which cat suits a part is a question about that part's range,
+// not about any one note.
+planCats(synth.samples, score.notes);
 
 // -------------------------------------------------------------------- clock --
 

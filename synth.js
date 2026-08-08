@@ -89,6 +89,16 @@ export const MAPPINGS = {
     return nearest(s.filter((x) => x.cat === cat), note.hz, null);
   },
 
+  /**
+   * The same idea, but the animals are cast rather than drawn: each part gets
+   * the cat that fits its register, and no cat plays two parts. See planCats.
+   * Falls back to the whole bank until planCats has run.
+   */
+  'cat-per-voice-fit': (s, note) => {
+    const cat = CAST.get(note.voice);
+    return nearest(cat ? s.filter((x) => x.cat === cat) : s, note.hz, null);
+  },
+
   /** One fixed sample per part — the same cry all piece, only retuned. */
   'one-per-voice': (s, note) => s[Math.floor(rand(note.voice * 40503) * s.length)],
 
@@ -158,6 +168,60 @@ export async function loadVoices(ctx, { meows = 'public/meows/', purrs = [] } = 
 }
 
 // ------------------------------------------------------------------- synth --
+
+// Which animal plays which part under 'cat-per-voice-fit'. Empty until
+// planCats runs, which song.js does once the score is loaded.
+const CAST = new Map();
+
+/** Median shift, in octaves, if this one cat had to play this whole part. */
+function costOf(samples, cat, hzs) {
+  const pool = samples.filter((s) => s.cat === cat);
+  const shifts = hzs.map((hz) => Math.abs(Math.log2(hz / nearest(pool, hz, null).f0)));
+  return shifts.sort((a, b) => a - b)[shifts.length >> 1];
+}
+
+/**
+ * Cast the parts: one cat each, none twice, each fitting its part's register.
+ *
+ * Not greedy-cheapest-first, which starves the parts with the fewest options —
+ * the top line here is nine notes between 598 and 1873 Hz and only two cats in
+ * the bank reach it, so cheapest-first hands both to some comfortable middle
+ * voice and leaves the top stretched an octave and a half. Instead the part
+ * with the most to lose picks first: at every step, whichever part has the
+ * biggest gap between its best remaining cat and its second-best gets to
+ * choose. A part that does not care waits.
+ *
+ * Depends on MIX.lowHz, since notes under the crossover are purrs and ask
+ * nothing of a cat. Move that slider and this wants re-running.
+ */
+export function planCats(samples, notes) {
+  CAST.clear();
+  const cats = [...new Set(samples.map((s) => s.cat))].sort();
+  const parts = new Map();
+  for (const n of notes) {
+    if (n.hz < MIX.lowHz) continue;
+    parts.set(n.voice, [...(parts.get(n.voice) ?? []), n.hz]);
+  }
+  const cost = new Map();
+  for (const [voice, hzs] of parts) {
+    for (const cat of cats) cost.set(`${voice}:${cat}`, costOf(samples, cat, hzs));
+  }
+
+  const taken = new Set();
+  const waiting = new Set(parts.keys());
+  while (waiting.size && taken.size < cats.length) {
+    let pick = null;
+    for (const voice of waiting) {
+      const open = cats.filter((c) => !taken.has(c)).sort((a, b) => cost.get(`${voice}:${a}`) - cost.get(`${voice}:${b}`));
+      const regret = open.length > 1 ? cost.get(`${voice}:${open[1]}`) - cost.get(`${voice}:${open[0]}`) : Infinity;
+      if (!pick || regret > pick.regret) pick = { voice, cat: open[0], regret };
+    }
+    CAST.set(pick.voice, pick.cat);
+    taken.add(pick.cat);
+    waiting.delete(pick.voice);
+  }
+  return CAST;
+}
 
 /** The meow whose own pitch is nearest, in log distance — never by index. */
 function nearest(samples, hz, family) {
