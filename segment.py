@@ -268,7 +268,8 @@ def main():
 
     p = OUT / "report.json"
     old = json.loads(p.read_text()) if p.exists() else {}
-    old.update(report)
+    for k, v in report.items():          # merge, so --only tops up the report
+        old.setdefault(k, {}).update(v)  # instead of truncating it to one image
     old["suspect"] = suspects(old.get("coverage", {}), old.get("parts", {}))
     p.write_text(json.dumps(old, indent=2))
 
