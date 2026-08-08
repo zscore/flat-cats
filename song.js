@@ -12,7 +12,8 @@
  * the main thread. Anything drawing against this should ask now(), never count
  * frames.
  */
-import { loadVoices, createSynth } from './synth.js';
+import { loadVoices, createSynth, MIX } from './synth.js';
+import { mountControls } from './controls.js';
 
 const LOOKAHEAD = 0.15; // seconds of notes handed to Web Audio in advance
 const TICK = 25; // ms between scheduler wakeups
@@ -30,7 +31,14 @@ const hud = document.getElementById('hud');
 const score = await (await fetch('public/song/notes.json')).json();
 
 const ctx = new AudioContext();
-const synth = createSynth(ctx, await loadVoices(ctx, { purrs: PURRS }));
+const GAIN = 0.5;
+const synth = createSynth(ctx, await loadVoices(ctx, { purrs: PURRS }), { gain: GAIN });
+
+const panel = document.getElementById('panel');
+mountControls(document.getElementById('knobs'), {
+  gain: GAIN,
+  onGain: (v) => synth.master.gain.setTargetAtTime(v, ctx.currentTime, 0.02),
+});
 
 // Each MIDI part keeps one cat's recording context for the whole piece, picked
 // by where the part sits. The three contexts are how the meows were recorded —
@@ -95,17 +103,29 @@ function frame() {
   hud.innerHTML =
     `<b>${t.toFixed(2)}s</b> / ${score.seconds}s · ${cursor}/${score.count} notes · ` +
     `${ranked.length} voices · ${sounding ? `${sounding.hz.toFixed(0)}Hz deg ${sounding.degree}` : '—'} · ` +
-    (playing ? 'space to pause, ←/→ to scrub' : 'click to play');
+    `${MIX.mapping} · ` +
+    (playing ? 'playing' : 'click to play');
   requestAnimationFrame(frame);
 }
 frame();
 
-addEventListener('click', () => (playing ? pause() : play()));
+// A click on a slider is a click on the page, and without this the panel
+// pauses the music every time you touch it — which makes the one thing the
+// panel exists for, hearing a knob move, impossible.
+addEventListener('click', (e) => {
+  if (panel.contains(e.target)) return;
+  playing ? pause() : play();
+});
+
 addEventListener('keydown', (e) => {
+  // Arrow keys belong to whichever slider has focus, and space would toggle a
+  // focused button rather than the transport.
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space') {
     e.preventDefault();
     playing ? pause() : play();
   }
   if (e.code === 'ArrowLeft') seek(now() - 5);
   if (e.code === 'ArrowRight') seek(now() + 5);
+  if (e.code === 'KeyH') panel.classList.toggle('hidden');
 });
