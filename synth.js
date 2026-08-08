@@ -110,6 +110,90 @@ export async function loadVoices(ctx, { meows = 'public/meows/', purrs = [] } = 
 
 // ------------------------------------------------------------------- synth --
 
+/** The meow whose own pitch is nearest, in log distance — never by index. */
+function nearest(samples, hz, family) {
+  const pool = samples.filter((s) => !family || s.voice === family);
+  return (pool.length ? pool : samples).reduce((a, b) =>
+    Math.abs(Math.log2(b.f0 / hz)) < Math.abs(Math.log2(a.f0 / hz)) ? b : a,
+  );
+}
+
+/** Highpass → peak on the fundamental → lowpass. The melodic part. */
+function shape(ctx, hz) {
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = hz * TONE.hpBelow;
+  const peak = ctx.createBiquadFilter();
+  peak.type = 'peaking';
+  peak.frequency.value = hz;
+  peak.Q.value = TONE.peakQ;
+  peak.gain.value = TONE.peak;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = Math.min(hz * TONE.lpAbove, TONE.lpCap);
+  hp.connect(peak).connect(lp);
+  return { in: hp, out: lp };
+}
+
+function envelope(ctx, at, seconds, level, { attack, release }) {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(level, at + attack);
+  g.gain.setValueAtTime(level, at + Math.max(attack, seconds));
+  g.gain.linearRampToValueAtTime(0, at + Math.max(attack, seconds) + release);
+  return g;
+}
+
+/** A note above LOW_HZ: a real meow, retuned and filtered. */
+function meowVoice(ctx, note, at, level, pan, samples) {
+  const sample = nearest(samples, note.hz, note.family);
+  const src = ctx.createBufferSource();
+  src.buffer = sample.buffer;
+  src.playbackRate.value = note.hz / sample.f0;
+  // A note can outlast its meow — the longest here is 10.7s and the longest
+  // meow 1.4s. Loop the middle, which is the sustained part of a cry; looping
+  // the whole file would repeat the attack like a stutter.
+  if (note.d * src.playbackRate.value > sample.buffer.duration * 0.9) {
+    src.loop = true;
+    src.loopStart = sample.buffer.duration * 0.35;
+    src.loopEnd = sample.buffer.duration * 0.85;
+  }
+  const tone = shape(ctx, note.hz);
+  const g = envelope(ctx, at, note.d, level, ENV);
+  src.connect(tone.in);
+  tone.out.connect(g).connect(pan);
+  src.start(at);
+  src.stop(at + note.d + ENV.release + 0.05);
+  return src;
+}
+
+/** A note below LOW_HZ: an exactly-tuned tone wearing a purr's envelope. */
+function purrVoice(ctx, note, at, level, pan, seed, beds) {
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.value = note.hz;
+
+  // The purr rides here. `depth` is the modulated part and the constant is
+  // the floor beneath it, so the note never fully disappears between pulses.
+  const ring = ctx.createGain();
+  ring.gain.value = 1 - PURR_DEPTH;
+  if (beds.length) {
+    const depth = ctx.createGain();
+    depth.gain.value = PURR_DEPTH;
+    beds[Math.floor(rand(seed) * beds.length)].connect(depth).connect(ring.gain);
+  }
+
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = clamp(note.hz * 6, 120, 900);
+  lp.Q.value = 1.2;
+  const g = envelope(ctx, at, note.d, level, ENV.low);
+  osc.connect(ring).connect(lp).connect(g).connect(pan);
+  osc.start(at);
+  osc.stop(at + note.d + ENV.low.release + 0.05);
+  return osc;
+}
+
 export function createSynth(ctx, voices, { gain = 0.5 } = {}) {
   const { samples, purrs } = voices;
   if (!samples.length) throw new Error('no meows loaded');
@@ -136,90 +220,6 @@ export function createSynth(ctx, voices, { gain = 0.5 } = {}) {
     return src;
   });
 
-  /** The meow whose own pitch is nearest, in log distance — never by index. */
-  const nearest = (hz, family) => {
-    const pool = samples.filter((s) => !family || s.voice === family);
-    return (pool.length ? pool : samples).reduce((a, b) =>
-      Math.abs(Math.log2(b.f0 / hz)) < Math.abs(Math.log2(a.f0 / hz)) ? b : a,
-    );
-  };
-
-  /** Highpass → peak on the fundamental → lowpass. The melodic part. */
-  function shape(hz) {
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = hz * TONE.hpBelow;
-    const peak = ctx.createBiquadFilter();
-    peak.type = 'peaking';
-    peak.frequency.value = hz;
-    peak.Q.value = TONE.peakQ;
-    peak.gain.value = TONE.peak;
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = Math.min(hz * TONE.lpAbove, TONE.lpCap);
-    hp.connect(peak).connect(lp);
-    return { in: hp, out: lp };
-  }
-
-  function envelope(at, seconds, level, { attack, release }) {
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(level, at + attack);
-    g.gain.setValueAtTime(level, at + Math.max(attack, seconds));
-    g.gain.linearRampToValueAtTime(0, at + Math.max(attack, seconds) + release);
-    return g;
-  }
-
-  /** A note above LOW_HZ: a real meow, retuned and filtered. */
-  function meowVoice(note, at, level, pan) {
-    const sample = nearest(note.hz, note.family);
-    const src = ctx.createBufferSource();
-    src.buffer = sample.buffer;
-    src.playbackRate.value = note.hz / sample.f0;
-    // A note can outlast its meow — the longest here is 10.7s and the longest
-    // meow 1.4s. Loop the middle, which is the sustained part of a cry; looping
-    // the whole file would repeat the attack like a stutter.
-    if (note.d * src.playbackRate.value > sample.buffer.duration * 0.9) {
-      src.loop = true;
-      src.loopStart = sample.buffer.duration * 0.35;
-      src.loopEnd = sample.buffer.duration * 0.85;
-    }
-    const tone = shape(note.hz);
-    const g = envelope(at, note.d, level, ENV);
-    src.connect(tone.in);
-    tone.out.connect(g).connect(pan);
-    src.start(at);
-    src.stop(at + note.d + ENV.release + 0.05);
-    return src;
-  }
-
-  /** A note below LOW_HZ: an exactly-tuned tone wearing a purr's envelope. */
-  function purrVoice(note, at, level, pan, seed) {
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.value = note.hz;
-
-    // The purr rides here. `depth` is the modulated part and the constant is
-    // the floor beneath it, so the note never fully disappears between pulses.
-    const ring = ctx.createGain();
-    ring.gain.value = 1 - PURR_DEPTH;
-    if (beds.length) {
-      const depth = ctx.createGain();
-      depth.gain.value = PURR_DEPTH;
-      beds[Math.floor(rand(seed) * beds.length)].connect(depth).connect(ring.gain);
-    }
-
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = clamp(note.hz * 6, 120, 900);
-    lp.Q.value = 1.2;
-    const g = envelope(at, note.d, level, ENV.low);
-    osc.connect(ring).connect(lp).connect(g).connect(pan);
-    osc.start(at);
-    osc.stop(at + note.d + ENV.low.release + 0.05);
-    return osc;
-  }
-
   // One pan position per MIDI voice, fixed for the piece. Eleven parts stacked
   // dead centre is the other half of why a chord reads as mush.
   const pans = new Map();
@@ -239,8 +239,8 @@ export function createSynth(ctx, voices, { gain = 0.5 } = {}) {
       const level = clamp(0.16 + (note.vel / 127) ** 1.6 * 0.5, 0, 0.8);
       const pan = panFor(note.voice, voiceCount);
       return note.hz < LOW_HZ
-        ? purrVoice(note, at, level * 1.25, pan, seed)
-        : meowVoice(note, at, level, pan);
+        ? purrVoice(ctx, note, at, level * 1.25, pan, seed, beds)
+        : meowVoice(ctx, note, at, level, pan, samples);
     },
     master,
     stop() {
