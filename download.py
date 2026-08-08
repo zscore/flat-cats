@@ -148,9 +148,16 @@ def main():
 
     print(f"selected {len(picked)} candidates; dropped: {rejected}")
 
-    credits, ok = [], 0
+    credits = retrieve(picked)
+    write_credits(credits)
+    print(f"\ndownloaded {len(credits)} images -> {IMG_DIR}")
+
+
+def retrieve(picked):
+    """Pull each file down and return its credit record."""
+    credits = []
     for title, ii, lic, meta in picked:
-        name = f"cat_{ok:02d}.jpg"
+        name = f"cat_{len(credits):02d}.jpg"
         dest = IMG_DIR / name
         if not dest.exists():
             try:
@@ -174,9 +181,13 @@ def main():
             "orig_width": ii.get("width"),
             "orig_height": ii.get("height"),
         })
-        ok += 1
-        print(f"  [{ok:2d}] {name}  {lic:<14} {ii['width']}x{ii['height']}  {title[5:55]}")
+        print(f"  [{len(credits):2d}] {name}  {lic:<14} "
+              f"{ii['width']}x{ii['height']}  {title[5:55]}")
+    return credits
 
+
+def write_credits(credits):
+    """Generated, never hand-edited: these must stay in step with images/."""
     (IMG_DIR / "credits.json").write_text(json.dumps(credits, indent=2))
     lines = ["# Image credits", "",
              "Every file below is CC0 1.0 or public domain: free to use, modify and",
@@ -186,7 +197,6 @@ def main():
         lines.append(f"| `{c['file']}` | {c['title']} | {c['creator'][:40]} | "
                      f"{c['license']} | [Commons]({c['source_page']}) |")
     (ROOT / "CREDITS.md").write_text("\n".join(lines) + "\n")
-    print(f"\ndownloaded {ok} images -> {IMG_DIR}")
 
 
 if __name__ == "__main__":
