@@ -1,0 +1,18 @@
+# Beat tracking only -- a SECOND venv, not .venv. madmom pins an old numpy and
+# will not import under 3.12+, so it cannot share an environment with torch.
+#
+# Two steps, and the order matters. madmom has no wheel for this platform and
+# builds from source against numpy and Cython, so they have to be installed
+# first and the build has to be told not to go looking for its own copies:
+#
+#   python3.10 -m venv .venv-tempo
+#   .venv-tempo/bin/pip install -r requirements-tempo.txt
+#   .venv-tempo/bin/pip install --no-build-isolation \
+#       'madmom @ git+https://github.com/CPJKU/madmom.git@27f032e'
+#
+# The PyPI release of madmom predates Python 3.10 and fails to build; that
+# commit on git master is the version known to work here.
+numpy==1.26.4
+scipy==1.13.1
+cython==3.2.9
+mido==1.3.3

@@ -20,6 +20,9 @@ python3.13 -m venv .venv
 .venv/bin/pip install pillow numpy scipy rembg onnxruntime torch transformers
 ```
 
+`tempo.py` needs a second, older environment of its own — see
+[Beat tracking](#beat-tracking).
+
 ## Running it
 
 ```sh
@@ -28,6 +31,8 @@ python segment.py                      # both stages, all images
 python segment.py --stage fg           # foreground only
 python segment.py --stage parts --only cat_04 cat_21
 python sheet.py out/overlay out/20_parts.png --cols 8 --cell 200
+
+.venv-tempo/bin/python tempo.py blackwood_17_notes_trimmed.wav   # -> beat grid
 ```
 
 Model weights (~200 MB) download on first run and cache in `~/.u2net` and the
@@ -69,6 +74,9 @@ any.
 | `out/overlay/*.png` | parts tinted over the photo, for reading by eye |
 | `out/report.json` | coverage, per-part pixel shares, QA flags |
 | `out/10_cutouts.png`, `out/20_parts.png` | contact sheets |
+| `out/tempo_beats.csv` | beat, time, interval, instantaneous BPM |
+| `out/tempo_beats.txt` | bare beat times in seconds, one per line |
+| `out/tempo_click.wav` | the grid ticked over the music, for judging by ear |
 
 Part label indices in `out/parts/*.png`:
 
@@ -83,6 +91,48 @@ head = lab == 1
 ```
 
 `out/` is derived and gitignored — regenerate it, don't commit it.
+
+## Beat tracking
+
+`tempo.py` turns a track into a list of beat timestamps. It uses
+[madmom](https://github.com/CPJKU/madmom): a small recurrent net scores every
+10 ms frame for how beat-like it is, and a dynamic Bayesian network walks that
+activation to pick the grid, which lets tempo drift instead of forcing one BPM
+on the whole track.
+
+madmom is old. It pins `numpy<2` and will not import on Python 3.12+, so it
+cannot share `.venv` with torch and gets its own:
+
+```sh
+python3.10 -m venv .venv-tempo
+.venv-tempo/bin/pip install -r requirements-tempo.txt
+.venv-tempo/bin/pip install --no-build-isolation \
+    'madmom @ git+https://github.com/CPJKU/madmom.git@27f032e'
+```
+
+Two steps because madmom has no wheel here and compiles against numpy and
+Cython, which therefore have to exist first. The PyPI release predates 3.10 and
+does not build at all.
+
+**`blackwood_17_notes_trimmed.wav` has no steady tempo, and this is measured
+rather than felt.** Every fixed tempo from 40 to 320 BPM was scored against the
+onsets in `out/onsets.json`, taking the best phase for each; the best of them
+lands about 1.4× chance, which is to say a metronome cannot track this piece for
+more than about thirty seconds. Accumulated slip against a perfect 172.5 BPM
+click is −10.3 beats: ahead by one around 70 s, ten behind by the end.
+
+The grid madmom returns averages ~179 BPM, and 46.3% of its beats fall within
+50 ms of a detected onset (chance is ~30%). A hand-rolled autocorrelation and
+dynamic-programming tracker was built first and reached 43.2% — close enough
+that the deciding factor was madmom needing no tuning, not accuracy.
+
+So do not build anything downstream that assumes the beats are right. The
+honest signal is in the script's own output: **madmom's activation never once
+exceeds 0.5 across the whole track**, meaning a model trained on a large music
+corpus never finds a beat it is confident about. `tempo.py` prints a warning
+when that happens. Onsets from `tools/onsets.mjs` are the more trustworthy
+timing source, and every timestamp in both tools is the centre of its analysis
+window — mixing that convention up biases a whole grid early by half a window.
 
 ## Known limitations
 
