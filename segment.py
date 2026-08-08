@@ -139,6 +139,64 @@ def heatmaps(model, proc, crop, spec):
     return heat.numpy() * np.array([s[2] for s in spec])[:, None, None]
 
 
+def label_cat(model, proc, im, inside):
+    """The two CLIPSeg passes, for one image. Returns a H*W map of part indices,
+    zero outside `inside`. None if the matte is empty."""
+    box = bbox(inside)
+    if box is None:
+        return None
+    label = np.zeros(inside.shape, np.uint8)
+
+    # --- pass 1: whole cat, cropped so the cat fills CLIPSeg's field
+    heat = heatmaps(model, proc, im.crop(box), COARSE)
+    x0, y0, x1, y1 = box
+    label[y0:y1, x0:x1] = np.array([IDX[s[0]] for s in COARSE])[heat.argmax(0)]
+    label[~inside] = 0
+
+    # Ears are only ears near the head. Without this, any small bright thing in
+    # frame (a leaf, a toy) reads as a pointed triangle and wins "ear".
+    head = label == IDX["head"]
+    hb = bbox(head, pad=0.45)
+    if hb is not None:
+        far = np.ones_like(head)
+        far[hb[1]:hb[3], hb[0]:hb[2]] = False
+        label[far & (label == IDX["ear"])] = IDX["torso"]
+
+    # --- pass 2: zoom on the head for the features pass 1 can't resolve
+    hbox = bbox(head, pad=0.12) if head.sum() > 0.01 * inside.sum() else None
+    if hbox:
+        hx0, hy0, hx1, hy1 = hbox
+        hcrop = im.crop(hbox)
+        if min(hcrop.size) < 160:                       # upsample tiny heads
+            s = 160 / min(hcrop.size)
+            hcrop = hcrop.resize((round(hcrop.width * s),
+                                  round(hcrop.height * s)), Image.LANCZOS)
+        fine = np.array([IDX[s[0]] for s in FINE])[
+            heatmaps(model, proc, hcrop, FINE).argmax(0)]
+        fine = np.asarray(Image.fromarray(fine.astype(np.uint8)).resize(
+            (hx1 - hx0, hy1 - hy0), Image.NEAREST))
+        # only overwrite pixels pass 1 already called head
+        win = label[hy0:hy1, hx0:hx1]
+        label[hy0:hy1, hx0:hx1] = np.where(win == IDX["head"], fine, win)
+    return label
+
+
+def write_parts(stem, im, label, inside):
+    """Indexed label PNG plus the tinted overlay, and the pixel-share summary."""
+    out = Image.fromarray(label, mode="P")
+    out.putpalette(list(COLORS.flatten()) + [0] * (768 - COLORS.size))
+    out.save(OUT / "parts" / f"{stem}.png")
+
+    base = np.asarray(im, np.float32)
+    tint = COLORS[label].astype(np.float32)
+    blend = np.where(inside[..., None], base * 0.45 + tint * 0.55, base * 0.28)
+    Image.fromarray(blend.astype(np.uint8)).save(OUT / "overlay" / f"{stem}.png")
+
+    px = label[inside]
+    return {NAMES[i]: round(float((px == i).mean()), 3)
+            for i in range(1, len(NAMES)) if (px == i).any()}
+
+
 def parts(images, thresh=0.5):
     from transformers import CLIPSegForImageSegmentation, CLIPSegProcessor
 
@@ -158,59 +216,13 @@ def parts(images, thresh=0.5):
             continue
         alpha = np.asarray(Image.open(alpha_p).resize(im.size), np.uint8)
         inside = alpha > thresh * 255
-        label = np.zeros(inside.shape, np.uint8)
 
-        box = bbox(inside)
-        if box is None:
+        label = label_cat(model, proc, im, inside)
+        if label is None:
             print(f"  seg {path.stem}: empty matte, skipped")
             continue
 
-        # --- pass 1: whole cat, cropped so the cat fills CLIPSeg's field
-        crop = im.crop(box)
-        heat = heatmaps(model, proc, crop, COARSE)
-        coarse = np.array([IDX[s[0]] for s in COARSE])[heat.argmax(0)]
-        x0, y0, x1, y1 = box
-        label[y0:y1, x0:x1] = coarse
-        label[~inside] = 0
-
-        # Ears are only ears near the head. Without this, any small bright thing
-        # in frame (a leaf, a toy) reads as a pointed triangle and wins "ear".
-        head = label == IDX["head"]
-        hb = bbox(head, pad=0.45)
-        if hb is not None:
-            far = np.ones_like(head)
-            far[hb[1]:hb[3], hb[0]:hb[2]] = False
-            label[far & (label == IDX["ear"])] = IDX["torso"]
-
-        # --- pass 2: zoom on the head for the features pass 1 can't resolve
-        hbox = bbox(head, pad=0.12) if head.sum() > 0.01 * inside.sum() else None
-        if hbox:
-            hx0, hy0, hx1, hy1 = hbox
-            hcrop = im.crop(hbox)
-            if min(hcrop.size) < 160:                       # upsample tiny heads
-                s = 160 / min(hcrop.size)
-                hcrop = hcrop.resize((round(hcrop.width * s),
-                                      round(hcrop.height * s)), Image.LANCZOS)
-            fine = np.array([IDX[s[0]] for s in FINE])[
-                heatmaps(model, proc, hcrop, FINE).argmax(0)]
-            fine = np.asarray(Image.fromarray(fine.astype(np.uint8)).resize(
-                (hx1 - hx0, hy1 - hy0), Image.NEAREST))
-            # only overwrite pixels pass 1 already called head
-            win = label[hy0:hy1, hx0:hx1]
-            label[hy0:hy1, hx0:hx1] = np.where(win == IDX["head"], fine, win)
-
-        out = Image.fromarray(label, mode="P")
-        out.putpalette(list(COLORS.flatten()) + [0] * (768 - COLORS.size))
-        out.save(OUT / "parts" / f"{path.stem}.png")
-
-        base = np.asarray(im, np.float32)
-        tint = COLORS[label].astype(np.float32)
-        blend = np.where(inside[..., None], base * 0.45 + tint * 0.55, base * 0.28)
-        Image.fromarray(blend.astype(np.uint8)).save(OUT / "overlay" / f"{path.stem}.png")
-
-        px = label[inside]
-        share = {NAMES[i]: round(float((px == i).mean()), 3)
-                 for i in range(1, len(NAMES)) if (px == i).any()}
+        share = write_parts(path.stem, im, label, inside)
         stats[path.stem] = share
         top = sorted(share.items(), key=lambda kv: -kv[1])[:5]
         print(f"  seg {path.stem}  " + "  ".join(f"{k} {v:.0%}" for k, v in top))
