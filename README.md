@@ -5,7 +5,7 @@ cut out from its background, and the cat divided into body parts.
 
 ## Licensing
 
-40 images, **every one CC0 1.0 or public domain**, sourced from Wikimedia
+80 images, **every one CC0 1.0 or public domain**, sourced from Wikimedia
 Commons. No attribution required, no share-alike, commercial use fine, derivative
 works fine. `download.py` restricts its search to the CC-Zero and PD-self
 categories *and then re-checks each file's own licence metadata* before keeping
@@ -87,7 +87,7 @@ head = lab == 1
 ## Known limitations
 
 These are measured, not guessed. `segment.py` writes a `suspect` block into
-`out/report.json` naming the images it thinks it got wrong; 8 of 40 are flagged.
+`out/report.json` naming the images it thinks it got wrong; 13 of 80 are flagged.
 
 - **Matting failures (4):** `cat_00` and `cat_12` are near-empty — a pile of
   sleeping kittens and a close-up of paws, neither of which reads as a subject.
