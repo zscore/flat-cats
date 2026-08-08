@@ -1,0 +1,80 @@
+[
+  {
+    "title": "Purring cat bertie.ogg",
+    "license": "Public domain",
+    "creator": "jim_mowatt",
+    "credit": "http://www.pdsounds.org/audio/download/33/Purring+Cat+01.mp3\n\nPDSounds description: http://www.pdsounds.org/sounds/purring_cat_bertie\nTransferred by F\u00e6",
+    "source_page": "https://commons.wikimedia.org/wiki/File%3APurring%20cat%20bertie.ogg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/6/69/Purring_cat_bertie.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "bytes": 112983,
+    "voice": "purr",
+    "file": "purr_00_purring_cat_bertie.wav",
+    "wav_bytes": 384846,
+    "seconds": 8.73
+  },
+  {
+    "title": "Purring cat.oga",
+    "license": "Public domain",
+    "creator": "Mysid",
+    "credit": "Own recording.",
+    "source_page": "https://commons.wikimedia.org/wiki/File%3APurring%20cat.oga",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/d/db/Purring_cat.oga?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "bytes": 106560,
+    "voice": "purr",
+    "file": "purr_01_purring_cat.wav",
+    "wav_bytes": 431478,
+    "seconds": 9.78
+  },
+  {
+    "title": "Schnurren einer Hauskatze (schnell).ogg",
+    "license": "Public domain",
+    "creator": "User:Mattes",
+    "credit": "Own work",
+    "source_page": "https://commons.wikimedia.org/wiki/File%3ASchnurren%20einer%20Hauskatze%20%28schnell%29.ogg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/a/a0/Schnurren_einer_Hauskatze_%28schnell%29.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "bytes": 62269,
+    "voice": "purr",
+    "file": "purr_02_schnurren_einer_hauskatze_schnell.wav",
+    "wav_bytes": 740954,
+    "seconds": 16.8
+  },
+  {
+    "title": "Whiskers' purr edit.ogg",
+    "license": "Public domain",
+    "creator": "Adam Cuerden, edited by X!",
+    "credit": "Own work",
+    "source_page": "https://commons.wikimedia.org/wiki/File%3AWhiskers%27%20purr%20edit.ogg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/7/72/Whiskers%27_purr_edit.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "bytes": 316658,
+    "voice": "purr",
+    "file": "purr_03_whiskers_purr_edit.wav",
+    "wav_bytes": 420060,
+    "seconds": 9.52
+  },
+  {
+    "title": "Whiskers' purr.ogg",
+    "license": "Public domain",
+    "creator": "Adam Cuerden",
+    "credit": "Own work",
+    "source_page": "https://commons.wikimedia.org/wiki/File%3AWhiskers%27%20purr.ogg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/c/c9/Whiskers%27_purr.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "bytes": 139565,
+    "voice": "purr",
+    "file": "purr_04_whiskers_purr.wav",
+    "wav_bytes": 471118,
+    "seconds": 10.68
+  },
+  {
+    "title": "439280 schots angry-tiger.wav",
+    "license": "CC0",
+    "creator": "schots",
+    "credit": "https://freesound.org/people/schots/sounds/439280/",
+    "source_page": "https://commons.wikimedia.org/wiki/File%3A439280%20schots%20angry-tiger.wav",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/2/29/439280_schots_angry-tiger.wav?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "bytes": 6301484,
+    "voice": "roar",
+    "file": "roar_00_439280_schots_angry_tiger.wav",
+    "wav_bytes": 2894802,
+    "seconds": 65.64
+  }
+]
