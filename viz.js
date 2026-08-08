@@ -41,17 +41,21 @@ const base = 'public/viz/';
 const manifest = await (await fetch(base + 'manifest.json')).json();
 const analysis = await (await fetch(base + manifest.onsets)).json();
 
-const cats = await Promise.all(
-  manifest.cats.map(
-    (c) =>
-      new Promise((ok, fail) => {
-        const img = new Image();
-        img.onload = () => ok(img);
-        img.onerror = () => fail(new Error(c.file));
-        img.src = base + c.file;
-      }),
-  ),
-);
+const load = (files) =>
+  Promise.all(
+    files.map(
+      (f) =>
+        new Promise((ok, fail) => {
+          const img = new Image();
+          img.onload = () => ok(img);
+          img.onerror = () => fail(new Error(f));
+          img.src = base + f;
+        }),
+    ),
+  );
+
+const cats = await load(manifest.cats.map((c) => c.file));
+const tails = await load(manifest.tails.map((t) => t.file));
 
 // ----------------------------------------------------------------- arrange --
 
@@ -91,13 +95,21 @@ sprites.sort((a, b) => a.t - b.t);
 
 // The tail burst is the one thing on screen that no note asked for, so it says
 // where it goes out loud: seconds into the song, and nothing else. Add a time
-// here to fire it again. It uses the best-matted cat in the cast — the burst
-// holds one cat still for thirteen seconds, which is long enough for a ragged
-// edge to be the only thing you look at.
+// here to fire it again. Its tail is made of the seven real tails tails.py cut
+// out of the set.
 const BURSTS = [20];
-const burstCat = cats[manifest.cats.indexOf(
-  manifest.cats.reduce((a, b) => (b.coverage > a.coverage ? b : a)),
-)];
+
+// The cat it happens to is drawn from the cats we got a tail out of, and only
+// then by matte quality. Coverage alone picks a head-and-shoulders portrait —
+// the highest-coverage cat in the cast fills its frame because it is a close-up
+// — and thirteen seconds of a floating head growing tails is not the idea. A
+// cat we cut a tail from was, by construction, photographed whole.
+const withTails = new Set(manifest.tails.map((t) => t.id));
+const burstPick = (manifest.cats.filter((c) => withTails.has(c.id)).length
+  ? manifest.cats.filter((c) => withTails.has(c.id))
+  : manifest.cats
+).reduce((a, b) => (b.coverage > a.coverage ? b : a));
+const burstCat = cats[manifest.cats.indexOf(burstPick)];
 
 // A cat can only be on screen for LIFE seconds, so the frame at time t needs
 // only the slice starting a little before t. Walk a cursor instead of scanning
@@ -148,7 +160,7 @@ function draw(t) {
     shown++;
   }
 
-  for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat);
+  for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat, tails);
   return shown;
 }
 
