@@ -7,6 +7,7 @@ __pycache__/
 # Derived — regenerate with segment.py / sheet.py / pick.mjs, don't commit.
 out/
 public/meows/
+public/viz/
 
 # Source audio dropped at the root to be processed. Big, and unlike images/ it
 # has no licence check standing behind it, so it does not go in the repo.
