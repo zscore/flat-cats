@@ -57,8 +57,10 @@ export const MIX = {
   // at 1 and the tone disappears between pulses; the rest is a floor that keeps
   // the pitch continuous.
   purrDepth: 0.62,
-  // Which of MAPPINGS below decides what plays a note.
-  mapping: 'nearest',
+  // Which of MAPPINGS below decides what plays a note. Chosen by ear against
+  // the other five: one animal per part holds a line together in a way that
+  // per-note nearest-pitch does not, and it is worth the extra retuning.
+  mapping: 'cat-per-voice',
 };
 
 /**
