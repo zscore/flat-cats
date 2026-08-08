@@ -26,19 +26,19 @@
  * public/song/notes.json and the clock is the AudioContext.
  */
 
-// Where the sampler hands over to the purr. Below this the nearest meow would
-// have to shift down more than an octave, which turns a 0.3s meow into a 1s
-// groan. 200 Hz is a little under the lowest meow's own pitch of 291 Hz.
-const LOW_HZ = 200;
-
 /**
  * TONE — the melodic knob.
  *
  * `peak` dB at the fundamental with `peakQ` either side of it. At 0 dB you get
  * raw meows and the piece reads as noise with a shape; at +18 dB you get a
  * pitched instrument that has stopped sounding like a cat. Move `peak` first.
+ *
+ * Exported and mutable, and read at the moment a note is built rather than
+ * captured at startup — that is what lets the panel in controls.js move any of
+ * this mid-piece. Nothing already scheduled changes; the lookahead is 0.15s,
+ * so a slider takes effect about that far ahead of what you are hearing.
  */
-const TONE = {
+export const TONE = {
   peak: 11, // dB lifted at the fundamental
   peakQ: 5.5, // how narrow that lift is
   hpBelow: 0.7, // highpass at this × the fundamental
@@ -46,12 +46,59 @@ const TONE = {
   lpCap: 5200, // Hz — the meows are 8 kHz sources, nothing lives above this
 };
 
-const ENV = { attack: 0.006, release: 0.11, low: { attack: 0.035, release: 0.18 } };
+export const ENV = { attack: 0.006, release: 0.11, low: { attack: 0.035, release: 0.18 } };
 
-// How much of the low voice is the purr riding on the tone, 0..1. All the way
-// at 1 and the tone disappears between pulses; the rest is a floor that keeps
-// the pitch continuous.
-const PURR_DEPTH = 0.62;
+export const MIX = {
+  // Where the sampler hands over to the purr. Below this the nearest meow would
+  // have to shift down more than an octave, which turns a 0.3s meow into a 1s
+  // groan. 200 Hz is a little under the lowest meow's own pitch of 291 Hz.
+  lowHz: 200,
+  // How much of the low voice is the purr riding on the tone, 0..1. All the way
+  // at 1 and the tone disappears between pulses; the rest is a floor that keeps
+  // the pitch continuous.
+  purrDepth: 0.62,
+  // Which of MAPPINGS below decides what plays a note.
+  mapping: 'nearest',
+};
+
+/**
+ * MAPPINGS — which meow plays a note. This is the palette.
+ *
+ * All six get the same 24 samples and the same note; they disagree only about
+ * which one to reach for, and that disagreement is most of what the instrument
+ * sounds like. `nearest` retunes least and so sounds most like cats; `scatter`
+ * retunes hardest and sounds most like an instrument built out of cats. There
+ * is no right answer in here, which is the whole reason it is a menu.
+ *
+ * `family` on a note is its part's recording context, assigned in song.js.
+ * `seed` is the note's index, so every choice below is stable across a reload.
+ */
+export const MAPPINGS = {
+  /** Nearest pitch among the part's own recording context. Least shift. */
+  nearest: (s, note) => nearest(s, note.hz, note.family),
+
+  /** Nearest pitch among all 24, ignoring which context it came from. */
+  'nearest-any': (s, note) => nearest(s, note.hz, null),
+
+  /** One animal per part, then nearest of that animal's own meows. */
+  'cat-per-voice': (s, note, seed) => {
+    const cats = [...new Set(s.map((x) => x.cat))].sort();
+    const cat = cats[Math.floor(rand(note.voice * 2654435761) * cats.length)];
+    return nearest(s.filter((x) => x.cat === cat), note.hz, null);
+  },
+
+  /** One fixed sample per part — the same cry all piece, only retuned. */
+  'one-per-voice': (s, note) => s[Math.floor(rand(note.voice * 40503) * s.length)],
+
+  /** Context by the note's own register rather than by its part. */
+  register: (s, note) => {
+    const family = note.hz < 380 ? 'brush' : note.hz < 800 ? 'food' : 'isolation';
+    return nearest(s, note.hz, family);
+  },
+
+  /** A different cat every note. Maximum shift, maximum chaos. */
+  scatter: (s, note, seed) => s[Math.floor(rand(seed * 2246822519) * s.length)],
+};
 
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
@@ -144,9 +191,9 @@ function envelope(ctx, at, seconds, level, { attack, release }) {
   return g;
 }
 
-/** A note above LOW_HZ: a real meow, retuned and filtered. */
-function meowVoice(ctx, note, at, level, pan, samples) {
-  const sample = nearest(samples, note.hz, note.family);
+/** A note above MIX.lowHz: a real meow, retuned and filtered. */
+function meowVoice(ctx, note, at, level, pan, samples, seed) {
+  const sample = (MAPPINGS[MIX.mapping] ?? MAPPINGS.nearest)(samples, note, seed);
   const src = ctx.createBufferSource();
   src.buffer = sample.buffer;
   src.playbackRate.value = note.hz / sample.f0;
@@ -167,7 +214,7 @@ function meowVoice(ctx, note, at, level, pan, samples) {
   return src;
 }
 
-/** A note below LOW_HZ: an exactly-tuned tone wearing a purr's envelope. */
+/** A note below MIX.lowHz: an exactly-tuned tone wearing a purr's envelope. */
 function purrVoice(ctx, note, at, level, pan, seed, beds) {
   const osc = ctx.createOscillator();
   osc.type = 'sawtooth';
@@ -176,10 +223,10 @@ function purrVoice(ctx, note, at, level, pan, seed, beds) {
   // The purr rides here. `depth` is the modulated part and the constant is
   // the floor beneath it, so the note never fully disappears between pulses.
   const ring = ctx.createGain();
-  ring.gain.value = 1 - PURR_DEPTH;
+  ring.gain.value = 1 - MIX.purrDepth;
   if (beds.length) {
     const depth = ctx.createGain();
-    depth.gain.value = PURR_DEPTH;
+    depth.gain.value = MIX.purrDepth;
     beds[Math.floor(rand(seed) * beds.length)].connect(depth).connect(ring.gain);
   }
 
@@ -238,14 +285,14 @@ export function createSynth(ctx, voices, { gain = 0.5 } = {}) {
     play(note, at, voiceCount = 11, seed = 0) {
       const level = clamp(0.16 + (note.vel / 127) ** 1.6 * 0.5, 0, 0.8);
       const pan = panFor(note.voice, voiceCount);
-      return note.hz < LOW_HZ
+      return note.hz < MIX.lowHz
         ? purrVoice(ctx, note, at, level * 1.25, pan, seed, beds)
-        : meowVoice(ctx, note, at, level, pan, samples);
+        : meowVoice(ctx, note, at, level, pan, samples, seed);
     },
     master,
+    samples,
     stop() {
       for (const b of beds) b.stop();
     },
-    LOW_HZ,
   };
 }
