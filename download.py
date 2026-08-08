@@ -44,7 +44,13 @@ QUERIES = [
     "cat grass incategory:CC-Zero",
 ]
 
-WANT = 40          # over-fetch; the contact sheet decides what actually stays
+# Over-fetch; the contact sheet decides what actually stays. The queries below
+# yield 81 keepable candidates, so this can rise to 81 without touching them --
+# and must not rise past it that way, because the levers that would (a bigger
+# PER_QUERY, a looser stem cap) reorder the candidate stream and therefore
+# renumber cat_NN, quietly re-pointing CREDITS.md at different photographs.
+# To go beyond 81, APPEND queries; appending leaves every earlier pick in place.
+WANT = 80
 MIN_SIDE = 600
 THUMB_W = 1280
 PER_QUERY = 12
