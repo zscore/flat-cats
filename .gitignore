@@ -16,6 +16,10 @@ public/song/
 /*.wav
 /*.mp3
 
+# The fetched meow pool. This one IS licence-checked twice, but it is a hundred
+# megabytes that fetch-meows.mjs can get back on demand, so it stays local.
+raw/
+
 # The score, for the same reason as the audio. A MIDI of the etude is a
 # transcription of a composition somebody else wrote, and nothing here has
 # checked what may be done with it — which is exactly the check images/ and
