@@ -29,7 +29,13 @@
  * arms leave the centre in the gaps the first one's leave. Turning the same way
  * is what keeps the pair one object; counter-turning reads as two things
  * fighting over the same middle. It shares every number in score() below, so it
- * packs and blooms and leaves with the first — one gesture, not two.
+ * packs and blooms with the first — one gesture, not two.
+ *
+ * It is only smaller until the bloom. Across the bloom it goes on growing past
+ * where the first wheel's own growth would take it, out to the same size, so it
+ * reaches the edges of the frame and leaves rather than sitting in the middle
+ * while the first one goes. See scaleAt(): the pair open into one wheel on the
+ * way out, and that — not the size difference — is the ending.
  *
  * The same beats that populate the wheels also swell them. Every beat picks one
  * cat already standing in each wheel and grows it to 1.6× and back inside a
@@ -80,12 +86,15 @@ const TAU = Math.PI * 2;
  *           wheel's arms in the outer's gaps.
  *   scale   applied to pitch and size together, so the inner wheel is the outer
  *           one photographed smaller rather than a denser wheel of small cats.
+ *   opens   what that scale becomes by the end of the bloom. The inner wheel
+ *           grows all the way out to the outer one's size and off the edges
+ *           with it; the outer wheel opens to what it already was.
  *   seed    which cat lands on which slot; different, or the same cat shows up
  *           twice on the same spoke.
  */
 export const WHEELS = {
-  outer: { wind: 1, offset: 0, scale: 1, seed: 7 },
-  inner: { wind: -1, offset: Math.PI / ARMS, scale: 0.55, seed: 11 },
+  outer: { wind: 1, offset: 0, scale: 1, opens: 1, seed: 7 },
+  inner: { wind: -1, offset: Math.PI / ARMS, scale: 0.55, opens: 1, seed: 11 },
 };
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -104,6 +113,7 @@ export function score(s) {
   const pack = ramp(s, 5.5, 24.0);
   const bloom = ramp(s, 25.5, 33.0);
   return {
+    bloom, // the wheels open out on this as well as grow on it — see scaleAt()
     alpha: ramp(s, 0, 1.0) * (1 - ramp(s, 33.5, BURST_LENGTH)),
     // The turn, as an angle. Slow to start, quickest through the packing, and
     // braked to a stop under the bloom so the last few cats hold still to grow.
@@ -124,6 +134,21 @@ export function score(s) {
 }
 
 /**
+ * How big `wheel` is drawn at `p`: its own size for most of the burst, opened
+ * out to `opens` across the bloom.
+ *
+ * This is what makes the inner wheel leave. `pitch` already blows up under the
+ * bloom, but it blows up by the same factor for both wheels, so a wheel held at
+ * 0.55 opens at 0.55 the rate and is still sitting in the middle when the outer
+ * one has gone — 84 cats against 36 at the moment the fade starts, measured. It
+ * has to gain on the outer wheel rather than merely keep pace with it, and that
+ * is one number rather than a second bloom of its own: by the end of the bloom
+ * the two are the same size and clear the frame together, which is also the
+ * ending that reads, the pair opening into one wheel on the way out.
+ */
+export const scaleAt = (p, wheel) => wheel.scale + (wheel.opens - wheel.scale) * p.bloom;
+
+/**
  * Where slot `k` of `wheel` sits under the score `p`, in fractions of the short
  * side — radius from the centre, height of the cat, and the angle it stands at.
  *
@@ -133,9 +158,10 @@ export function score(s) {
  */
 export function slot(k, p, wheel) {
   const j = Math.floor(k / ARMS); // how far along its arm this slot sits
+  const scale = scaleAt(p, wheel);
   return {
-    r: wheel.scale * p.pitch * (j + 1) ** SPREAD,
-    h: wheel.scale * p.size * (j + 1) ** -DEPTH,
+    r: scale * p.pitch * (j + 1) ** SPREAD,
+    h: scale * p.size * (j + 1) ** -DEPTH,
     theta: (k % ARMS) * (TAU / ARMS) + wheel.offset + wheel.wind * WIND * Math.log1p(j) + p.spin,
   };
 }

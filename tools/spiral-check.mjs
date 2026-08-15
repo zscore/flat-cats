@@ -20,9 +20,10 @@
  *   together   one clock. Both wheels turn through the same angle every second
  *              and neither outlives the other
  *   leaves     the bloom empties the frame. BURST_LENGTH is documented as
- *              "start to nothing on screen", and the inner wheel is the first
- *              thing here that can break that: at 0.55 scale its arms open at
- *              0.55 the rate, so it clears the frame later than the outer one
+ *              "start to nothing on screen", and the inner wheel is the thing
+ *              most able to break it: held at 0.55 it opened at 0.55 the rate
+ *              and was still in the middle with the outer wheel gone, which is
+ *              what `opens` exists to fix. Both wheels are measured
  *   heard      every beat swells a cat that is on frame and lit. The failure is
  *              silent by design — a beat with nothing to choose from passes
  *              without a swell — so the only way to know is to count, which is
@@ -37,7 +38,7 @@
  * is what you see in the panel marked 8s.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { score, slot, pool, swelling, WHEELS, BURST_LENGTH, INNER_AT } from '../spiral.js';
+import { score, slot, scaleAt, pool, swelling, WHEELS, BURST_LENGTH, INNER_AT } from '../spiral.js';
 import { planSpiral } from '../plan.js';
 
 const url = (p) => new URL(p, import.meta.url);
@@ -90,7 +91,7 @@ function arm(s, wheel, a) {
   const p = score(s);
   const pts = [];
   for (let j = 0; j < 400; j += 0.5) {
-    const r = wheel.scale * p.pitch * (j + 1) ** 0.62;
+    const r = scaleAt(p, wheel) * p.pitch * (j + 1) ** 0.62;
     if (r > EDGE) break;
     const th = a * gap + wheel.offset + wheel.wind * 1.25 * Math.log1p(j) + p.spin;
     pts.push([Math.cos(th) * r, Math.sin(th) * r]);
@@ -180,7 +181,7 @@ const left = crowding(FADE_AT);
 
 // ----------------------------------------------------------------- picture --
 
-const MOMENTS = [2, INNER_AT, 12, 18, 24, 30];
+const MOMENTS = [2, INNER_AT, 12, 24, 30, 33];
 const S = 190; // px per frame height
 const w = Math.round(VIEW * S);
 const panels = MOMENTS.map((s, i) => {
@@ -226,7 +227,8 @@ const rows = [
     heard.every((h) => h.lost / h.of < 0.05)],
   ['leaves', `at ${FADE_AT}s, where the fade-out starts, ${left.on} outer cats are still on frame ` +
     `(of ${each[27].on} at the peak) and ${left.in} inner ones (of ${each[27].in}) — ` +
-    `the inner wheel's arms open at ${WHEELS.inner.scale} the rate, so it does not clear`, left.in <= left.on],
+    `the inner wheel grows ${WHEELS.inner.scale}&rarr;${WHEELS.inner.opens} across the bloom, ` +
+    `so both reach the edges`, left.in <= left.on],
   ['room', `worst crossing-crowd at ${worst.s}s: ${worst.on} outer + ${worst.in} inner on frame, ` +
     `${worst.oo} overlapping pairs inside the outer wheel, ${worst.ii} inside the inner, ` +
     `${worst.oi} between the two — only that last number is new`, null],
@@ -247,7 +249,8 @@ writeFileSync(
     `<h1>spiral at ${spiral.at.toFixed(1)}s — ${spiral.beats.length} beats on the outer wheel, ` +
     `${spiral.inner.length} on the inner from ${(spiral.at + INNER_AT).toFixed(1)}s</h1>` +
     `<table>${rows}</table><div class="grid">${panels}</div>` +
-    `<p>blue is the outer wheel, orange the inner one at ${WHEELS.inner.scale} of its size. each cat is ` +
+    `<p>blue is the outer wheel, orange the inner one — ${WHEELS.inner.scale} of the outer's size until ` +
+    `the bloom, which opens it out to ${WHEELS.inner.opens} so the two reach the edges together. each cat is ` +
     `drawn at the real proportions of the image that slot lands on, leaning the ${LEAN} of the arm ` +
     `angle spiral.js leans them. the frame is 16:9 and everything outside it is clipped, so these are ` +
     `what is on screen.</p>`,
