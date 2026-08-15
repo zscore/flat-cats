@@ -60,7 +60,8 @@ const K = Object.fromEntries(
   ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'WAVE_ARC', 'WAVE_AMP',
    'WAVE_LEN', 'BLEND', 'TEETH', 'RISER', 'RUN', 'ROUND', 'SNAKE_ARC', 'SNAKE_AMP', 'SNAKE_LEN',
    'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
-   'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD']
+   'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD',
+   'H_ARC', 'H_TURN']
     .map((n) => [n, num(n)]),
 );
 const TOOTH = 2 * K.RISER + 2 * K.RUN;
@@ -122,14 +123,21 @@ const squiggle = (u, s) => {
   return -(s.dip * Math.PI / s.arc) * Math.sin(TAU * p)
     + ((1 - Math.cos(TAU * p)) / 2) * (s.amp * Math.sin(TAU * u / len) - s.kink * Math.sin(TAU * u / (len / 2)));
 };
-const cArc = (sqX + K.C_LEAD - (x0 - K.C_LEAD)) / bessel0((K.C_TIGHT + K.C_OPEN) / 2);
+const cArc = K.H_ARC + (sqX + K.C_LEAD - (x0 - K.C_LEAD)) / bessel0((K.C_TIGHT + K.C_OPEN) / 2);
 const cn = Math.ceil(cArc / STEP);
 const cxs = [], cys = [];
+// The hook integrated alone, so the course can be started far enough back that
+// the hook ends where the run used to begin — the same trick currents.js uses.
+const hook = (u) => Math.PI + K.H_TURN * (1 - smooth(u / K.H_ARC));
+let hx = 0, hy = 0;
+for (let i = 0, hn = Math.ceil(K.H_ARC / STEP); i <= hn; i++) { const t = hook(i * STEP); hx += Math.cos(t) * STEP; hy += Math.sin(t) * STEP; }
 {
-  let x = sqX + K.C_LEAD, y = base + K.C_LOW;
+  let x = sqX + K.C_LEAD - hx, y = base + K.C_LOW - hy;
   for (let i = 0; i <= cn; i++) {
     cxs.push(x); cys.push(y);
-    const u = i * STEP;
+    let u = i * STEP;
+    if (u < K.H_ARC) { const t = hook(u); x += Math.cos(t) * STEP; y += Math.sin(t) * STEP; continue; }
+    u -= K.H_ARC;
     const open = ramp(u, K.C_AT, K.C_AT + K.C_WIDE);
     const amp = K.C_TIGHT + (K.C_OPEN - K.C_TIGHT) * open;
     const lean = (K.C_RISE / K.C_WIDE) * (ramp(u, K.C_AT, K.C_AT + 0.25) - ramp(u, K.C_AT + K.C_WIDE - 0.25, K.C_AT + K.C_WIDE));

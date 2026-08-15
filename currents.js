@@ -137,6 +137,27 @@ function squiggle(u, s) {
   return dip + w * (s.amp * Math.sin((TAU * u) / len) - s.kink * Math.sin((TAU * u) / (len / 2)));
 }
 
+// The hook. Left to itself the under-river simply *begins*, in clear air in the
+// middle of the frame, at about 110s — a file of cats fading up out of nothing
+// where the meander takes over. So it does not begin: it comes up out of the
+// bottom-right corner of the frame, swinging over onto the leftward run.
+//
+// Where it can go is decided by the counter-river, which is coming down through
+// exactly this corner — it reaches y 1.044 around x 9.7, and the frame's floor
+// is 1.101. There is no room to pass above it and none to loop inside it, so
+// the hook goes under: down past the frame's bottom edge, and out of shot.
+// H_TURN is how far its heading has swung by the tip. Swept against the
+// counter-river the way everything else here is: 0.6 and 2.4 clear it by 0.032,
+// where 0.8 and 1.6 ran straight through it at -0.007. Most of the curl is
+// below the frame — only the last 0.2 of it, three cats or so, is ever in shot.
+const H_ARC = 0.6;
+const H_TURN = 2.4;
+
+// The hook integrated on its own, only to find out how far it travels. The
+// under-river is then started that much back, so the hook *ends* exactly where
+// the course used to begin and nothing downstream of it moves.
+const HOOK = makeCourse((u) => Math.PI + H_TURN * (1 - smooth(u / H_ARC)), H_ARC);
+
 /**
  * The under-river's heading. Three things happen along it, each in its own
  * window: the swing opens from C_TIGHT to C_OPEN, a lean lifts the whole course
@@ -144,6 +165,10 @@ function squiggle(u, s) {
  * and earlier than either it tightens into each of the SQUIGGLES in turn.
  */
 function under(u) {
+  // The hook comes first, and hands over pointing exactly along the run: smooth
+  // is flat at both ends, so there is no corner where the two meet.
+  if (u < H_ARC) return Math.PI + H_TURN * (1 - smooth(u / H_ARC));
+  u -= H_ARC;
   const open = ramp(u, C_AT, C_AT + C_WIDE);
   const amp = C_TIGHT + (C_OPEN - C_TIGHT) * open;
   const lean = (C_RISE / C_WIDE) * (ramp(u, C_AT, C_AT + 0.25) - ramp(u, C_AT + C_WIDE - 0.25, C_AT + C_WIDE));
@@ -180,9 +205,9 @@ export function makeCurrents(river, marks) {
   // own source — which is why it is on screen before the river is.
   const underRiver = makeCourse(
     under,
-    (teethX + C_LEAD - (river.x0 - C_LEAD)) / bessel0((C_TIGHT + C_OPEN) / 2),
-    teethX + C_LEAD,
-    base + C_LOW,
+    H_ARC + (teethX + C_LEAD - (river.x0 - C_LEAD)) / bessel0((C_TIGHT + C_OPEN) / 2),
+    teethX + C_LEAD - HOOK.xs[HOOK.n],
+    base + C_LOW - HOOK.ys[HOOK.n],
     C_LANES,
   );
 
