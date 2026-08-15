@@ -110,7 +110,14 @@ const C_LEAD = 0.9;
 //             not centred on the course, so a squiggle hung straight off it
 //             swings into the river on one side before it has used the room on
 //             the other.
+//
+// They are listed the way the frame meets them, which is *backwards* along the
+// under-river: it runs right to left, so the later window is the lower `at`.
 const SQUIGGLES = [
+  // the tightest of them, under the last of the right angles — a 0.054 radius
+  // against the 0.080 of the one below, in the same width of channel
+  { at: 1.5, arc: 1.32, bends: 3, amp: 0.7, kink: 0.45, dip: 0.012 },
+  // and the first you see, under the middle of the teeth
   { at: 4.9, arc: 2.0, bends: 4, amp: 0.42, kink: 0.33, dip: 0.002 },
 ];
 
