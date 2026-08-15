@@ -65,7 +65,8 @@ const K = Object.fromEntries(
    'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
    'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD',
    'H_ARC', 'H_TURN',
-   'T_LANES', 'T_AT', 'T_AMP', 'T_DEEP', 'T_LEAD', 'T_VEIL']
+   'T_LANES', 'T_AT', 'T_AMP', 'T_DEEP', 'T_SCALE', 'T_LEAD', 'T_VEIL',
+   'DRIFT', 'DRIFT_LEN']
     .map((n) => [n, num(n)]),
 );
 const TOOTH = 2 * K.RISER + 2 * K.RUN;
@@ -105,12 +106,19 @@ const x0 = Math.min(...xs), x1 = Math.max(...xs);
 // ------------------------------------------------------- the counter-river --
 
 function bessel0(a) { let t = 1, s = 1; for (let k = 1; k < 12; k++) { t *= -(a * a / 4) / (k * k); s += t; } return s; }
+// The lean the small courses share. Applied to the points once they are built,
+// exactly as currents.js does it, and for the reason set out there: in the
+// heading it would be scaled by each course's own local steepness and the
+// currents would stop holding their gaps.
+const lean = (xs, ys) => { for (let i = 0; i < xs.length; i++) ys[i] += K.DRIFT * Math.sin((TAU * xs[i]) / K.DRIFT_LEN); };
 const snX = xs[Math.round(SN_AT / STEP)], snY = ys[Math.round(SN_AT / STEP)];
-const bArc = (x1 - snX + K.B_LEAD) / bessel0(K.B_AMP);
+const bB = bessel0(K.B_AMP);
+const counterX = x1 + K.B_LEAD;
+const bArc = (x1 - snX + K.B_LEAD) / bB;
 const bn = Math.ceil(bArc / STEP);
 const bxs = [], bys = [];
 {
-  let x = x1 + K.B_LEAD, y = snY + K.B_DROP;
+  let x = counterX, y = snY + K.B_DROP;
   for (let i = 0; i <= bn; i++) {
     bxs.push(x); bys.push(y);
     const th = Math.PI + K.B_AMP * Math.sin((TAU * (i * STEP + K.B_PHASE)) / K.B_LEN);
@@ -156,28 +164,38 @@ for (let i = 0, hn = Math.ceil(K.H_ARC / STEP); i <= hn; i++) { const t = hook(i
 // Rebuilt the same way, and for the same reason: this is an independent check on
 // the shape, not a call into it. PHI is arithmetic rather than one of the
 // river's knobs, so it is computed here instead of read back out of the source.
-const PHI = (1 + Math.sqrt(5)) / 2;
 // The frame's top edge, in the course's own units. Both this stretch and the
 // `leaves` claim below are about the same edge, so it is measured once here.
 const top = camY - 0.5;
-const tLen = K.SNAKE_LEN / PHI;
-const tExc = (K.T_AMP * tLen) / Math.PI;
+const bT = bessel0(K.T_AMP);
 const rightEdgeAt = (s) => x0 - K.CAT_H + K.PAN * s;
-const tArc = (rightEdgeAt(river.BURST_LENGTH) + K.T_LEAD - rightEdgeAt(K.T_AT)) / bessel0(K.T_AMP);
+// Integrated from its right-hand end, and its arc rounded up to a half-odd
+// number of the meander's wavelengths so the mouth lands on a high point.
+const tSpan = (rightEdgeAt(river.BURST_LENGTH) + K.T_LEAD - rightEdgeAt(K.T_AT)) / bT;
+const tArc = (Math.ceil(tSpan / K.SNAKE_LEN - 0.5) + 0.5) * K.SNAKE_LEN;
+const topX = rightEdgeAt(K.T_AT) + tArc * bT;
 const tn = Math.ceil(tArc / STEP);
 const txs = [], tys = [];
 {
-  let x = rightEdgeAt(K.T_AT), y = top + K.T_DEEP - tExc;
+  let x = topX, y = top + K.T_DEEP;
   for (let i = 0; i <= tn; i++) {
     txs.push(x); tys.push(y);
-    const th = K.T_AMP * Math.sin((TAU * i * STEP) / tLen);
+    const th = Math.PI + K.T_AMP * Math.sin((TAU * i * STEP) / K.SNAKE_LEN);
     x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
   }
 }
 // What the top river is actually worth to look at: how far its belly comes below
 // the frame's top edge, and how much of its length is in shot at all.
-const tDip = Math.max(...tys) + K.CAT_H / 2 - top;
-const tSeen = tys.filter((y) => y + K.CAT_H / 2 > top).length / tys.length;
+const tHalf = (K.CAT_H * K.T_SCALE) / 2;
+// When the frame's right edge first reaches the course, and where its mouth
+// ends up — the two things the arc-rounding above is there to get right.
+const tFirst = (Math.min(...txs) + K.CAT_H) / K.PAN;
+const tMouth = tys[tys.length - 1] + tHalf;
+const tDip = Math.max(...tys) + tHalf - top;
+const tSeen = tys.filter((y) => y + tHalf > top).length / tys.length;
+
+// All three small courses lean together; the river does not lean at all.
+lean(bxs, bys); lean(cxs, cys); lean(txs, tys);
 
 // Ribbon half-widths: two courses just touch when their centre lines close to
 // the sum of these, so anything above zero below is real daylight. With three
@@ -187,7 +205,7 @@ const COURSES = [
   { name: 'river', xs, ys, half: half(K.LANES) },
   { name: 'counter', xs: bxs, ys: bys, half: half(K.B_LANES) },
   { name: 'under', xs: cxs, ys: cys, half: half(K.C_LANES) },
-  { name: 'top', xs: txs, ys: tys, half: half(K.T_LANES) },
+  { name: 'top', xs: txs, ys: tys, half: half(K.T_LANES) * K.T_SCALE },
 ];
 function apart(p, q) {
   let nearest = Infinity;
@@ -205,6 +223,9 @@ for (let i = 0; i < COURSES.length; i++)
   for (let j = i + 1; j < COURSES.length; j++)
     pairs.push([`${COURSES[i].name}/${COURSES[j].name}`, apart(COURSES[i], COURSES[j])]);
 const clearGap = Math.min(...pairs.map(([, g]) => g));
+// The pairs that drift together, and so should be unmoved by it: everything not
+// involving the river. Named rather than counted, so the claim reads as a claim.
+const leanPairs = pairs.map(([nm]) => nm).filter((nm) => !nm.includes('river/')).join(', ');
 
 // ------------------------------------------------------------------ untied --
 
@@ -296,10 +317,23 @@ const rows = [
     clearGap > 0],
   // The top river is meant to be mostly out of shot, so the failure here is not
   // "some of it is off-screen" — it is none of it ever coming in.
-  ['hangs', `the top river dips ${tDip.toFixed(3)} below the frame's top edge ` +
-    `(${(100 * tDip / K.CAT_H).toFixed(0)}% of a cat), in shot for ${(100 * tSeen).toFixed(0)}% of its length; ` +
-    `wavelength ${tLen.toFixed(3)} against the meander's ${K.SNAKE_LEN} — ratio ${(K.SNAKE_LEN / tLen).toFixed(3)}`,
+  ['hangs', `the top river dips ${tDip.toFixed(3)} below the frame's top edge — ` +
+    `${(100 * tDip / (K.CAT_H * K.T_SCALE)).toFixed(0)}% of one of its own ${K.T_SCALE}-size cats — ` +
+    `and is in shot for ${(100 * tSeen).toFixed(0)}% of its length, on the meander's own ${K.SNAKE_LEN} wavelength`,
     tDip > 0.01 && tSeen > 0.1],
+  // Two silent failures live in the top river's placement, and neither shows up
+  // anywhere else: it is meant to arrive exactly at T_AT, and its mouth is meant
+  // to be off the top of the frame. Both come out of arithmetic — the arc is
+  // rounded to a half-odd number of wavelengths to land the mouth on a high
+  // point — so both break quietly the moment a constant moves.
+  ['meets', `the frame first reaches it at ${tFirst.toFixed(1)}s against T_AT ${K.T_AT}, and its mouth sits ` +
+    `${(top - tMouth).toFixed(3)} above the top edge — ${tMouth < top ? 'out of shot' : 'IN SHOT, cats fade out in mid-air'}`,
+    Math.abs(tFirst - K.T_AT) < 0.2 && tMouth < top],
+  // The drift is bounded by the pair it can close hardest, and the pair it can
+  // close hardest is a small course against the river, which does not drift.
+  ['drifts', `the small courses lean ${K.DRIFT} either way over ${K.DRIFT_LEN} of x, together rather ` +
+    `than against each other — so ${leanPairs} keep their gap and only the river's change`,
+    clearGap > 0],
 ].map(([k, v, ok]) => `<tr><td>${k}</td><td class="${ok ? 'ok' : 'no'}">${v}</td></tr>`).join('');
 
 writeFileSync(new URL('../out/river.html', import.meta.url),
@@ -340,4 +374,7 @@ console.log(`steady : ${speeds}`);
 console.log(`wide   : tightest radius ${tightest.toFixed(3)} vs inside lane ${inside.toFixed(3)}`);
 console.log(`clear  : ${pairs.map(([nm, g]) => `${nm} ${Number.isFinite(g) ? g.toFixed(3) : 'never near'}`).join(' · ')}`);
 console.log(`hangs  : top river dips ${tDip.toFixed(3)} below the top edge, in shot for ${(100 * tSeen).toFixed(0)}% of its length` +
-  `, wavelength ${tLen.toFixed(3)} vs the meander's ${K.SNAKE_LEN}`);
+  `, on the meander's own ${K.SNAKE_LEN} wavelength`);
+
+console.log(`meets  : first in shot at ${tFirst.toFixed(1)}s (T_AT ${K.T_AT}), mouth ${(top - tMouth).toFixed(3)} above the top edge`);
+console.log(`drifts : small courses lean ${K.DRIFT} either way over ${K.DRIFT_LEN} of x (${leanPairs} hold their gap)`);

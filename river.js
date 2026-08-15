@@ -1,6 +1,6 @@
 /**
  * river.js — the river of cats: a ribbon three cats wide, a frame that travels
- * down it, and two counter-currents running back the other way.
+ * down it, and three counter-currents running back the other way.
  *
  * The river is one fixed curve, laid out once, in three stretches:
  *
@@ -12,9 +12,10 @@
  * Running the other way, right to left, single file, are the currents —
  * currents.js, built off this river's own landmarks rather than off coordinates
  * of their own. Between them something is always swimming against the river.
- * The last of them is not a counter-current at all: the top river runs the same
- * way this one does, along the very top of the frame and mostly above it, and
- * the frame meets it 52 seconds in. currents.js says why it can be no lower.
+ * The last of them is the top river, which runs along the very top of the frame
+ * and mostly above it — the frame meets it 52 seconds in, and what you see of it
+ * is a file of small cats dipping into shot and out again. currents.js says why
+ * it can be no lower, and why its cats are the size they are.
  *
  * Three things worth writing down, because they are what the module is.
  *
@@ -59,10 +60,10 @@
  * self-crossing because the amplitude stays under the ~2.2 rad where a
  * sine-generated curve folds. Two *different* curves clearing each other is not
  * something a bound gives you, so river-check measures every pair, point against
- * point: counter/under is the tightest at 0.027, then river/counter at 0.038 and
- * river/top at 0.044. Move any constant and those move with it — check them
- * rather than assuming they survived. It is also what cost the meander its
- * depth, as SNAKE_AMP explains below.
+ * point: counter/under is the tightest at 0.027, then river/counter at 0.035,
+ * river/under at 0.034 and river/top at 0.056. Move any constant and those move
+ * with it — check them rather than assuming they survived. It is also what cost
+ * the meander its depth, as SNAKE_AMP explains below.
  *
  * Like draw() in viz.js, tailBurst() in tail.js, faceBurst() in face.js and
  * spiralBurst() in spiral.js this is a pure function of time — no counters, no
@@ -256,8 +257,11 @@ export function riverBurst(ctx, W, H, since, cats, beats = []) {
 
 /** One course's worth of cats, at `since` seconds, through a frame at (camX, camY). */
 function swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen) {
-  const cull = CAT_H + LANE * (course.lanes - 1);
-  const h = CAT_H * H;
+  // A course may draw its cats smaller than everyone else's — the whole ribbon
+  // scales, lane spacing with it, so a skinny course is skinny in every way.
+  const scale = course.scale ?? 1;
+  const cull = (CAT_H + LANE * (course.lanes - 1)) * scale;
+  const h = CAT_H * scale * H;
 
   // Every place on the course, culled to the ones the frame can see. A course
   // is only a few hundred of these, so the test is cheaper than being clever
@@ -293,7 +297,7 @@ function swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen) {
     const mid = (course.lanes - 1) / 2;
 
     for (let lane = 0; lane < course.lanes; lane++) {
-      const off = (lane - mid) * LANE * H;
+      const off = (lane - mid) * LANE * scale * H;
       const img = cats[(k * 7 + lane * 23 + 3) % cats.length];
       const size = h * (lane === Math.round(mid) ? 1 + grow : 1);
       const w = size * (img.width / img.height);

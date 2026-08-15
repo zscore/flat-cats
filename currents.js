@@ -21,6 +21,12 @@
  *            squiggle where that straightness would otherwise go on too long,
  *            then opening into long swings under the wave where there is room
  *   counter  the late one, set into the bends of the meander without touching
+ *   top      the skinny one, along the top edge and mostly above it, which the
+ *            frame does not meet until 52 seconds into the burst
+ *
+ * All three lean slightly nearer the river and away again as they run — the
+ * drift, below. They lean *together*, which is the only reason it is affordable:
+ * the gaps between the currents are the tight ones, and those never move.
  *
  * Not touching is the one thing here with no bound behind it. Everything else is
  * guaranteed by construction — no self-crossing because the amplitudes stay
@@ -77,40 +83,77 @@ const C_WIDE = 1.5; // and how much arc it takes to do it
 const C_RISE = 0.1;
 const C_LEAD = 0.9;
 
-// The top river — another river rather than a third current, in that it runs the
-// same way the river does, left to right, along the very top of the frame. Like
-// the counter-river it has no trigger of its own: it is placed at the x the
-// frame's right edge reaches T_AT seconds into the burst, and "from 52s" is that
+// The top river — the third current, and the skinny one. It runs against the
+// river like the other two, right to left along the very top of the frame, and
+// like them it has no trigger of its own: it is placed at the x the frame's
+// right edge reaches T_AT seconds into the burst, and "from 52s" is that
 // placement rather than a start time. Nothing in plan.js knows it exists.
 //
 // Almost all of it is above the top edge, and that is not a compromise — it is
 // the only room there is. Where the meander crests, the top of its three-lane
-// ribbon comes to within 0.074 of the frame's top edge, and a cat is 0.075 tall.
-// There is one cat-height of clear water up there and the edge of the screen
-// runs through the middle of it. So the course hangs off the top and dips its
-// belly into shot, and what you see is the bottom two thirds of a file of cats
-// sliding along the top of the frame.
+// ribbon comes to within 0.074 of the frame's top edge, and a full-size cat is
+// 0.075 tall. There is one cat-height of clear water up there and the edge of
+// the screen runs through the middle of it.
 //
-// T_DEEP is that dip: from the top edge down to the deepest the centre line
-// goes, and it is the one constant the crest constrains. At 0.015 the ribbon
-// still clears the meander by 0.044, the same order as the 0.038 the
-// counter-river leaves. Past about 0.036 they touch, and river-check says so.
+// Which is what T_SCALE is for. Skinny is not only how it looks — it is what
+// makes it visible at all. The gap between the top edge and the crest is fixed,
+// so the strip of cat below the edge is the same 0.036 whatever size the cats
+// are; shrinking them to T_SCALE turns that strip from two thirds of a cat into
+// very nearly all of one. A smaller cat also has a narrower ribbon, which is
+// where the room for T_DEEP and for the drift below comes from.
+//
+// T_DEEP is the dip: from the top edge down to the deepest the centre line goes,
+// and it is the constant the crest actually constrains. river-check measures
+// what is left over.
 const T_LANES = 1;
 const T_AT = 52; // seconds into the burst that the frame first meets it
-const T_AMP = 0.5; // heading amplitude — how hard it dives in and out of shot
-const T_DEEP = 0.015; // how far below the frame's top edge the deepest dip goes
-const T_LEAD = 0.3; // arc past the last frame, so the mouth is never in shot
-const T_VEIL = 0.035; // how far in a cat comes before it is fully faded up
+const T_AMP = 0.28; // heading amplitude — how hard it dives in and out of shot
+const T_DEEP = 0.014; // how far below the frame's top edge the deepest dip goes
+const T_SCALE = 0.6; // cat size, against the full-size cats on every other course
+const T_LEAD = 0.3; // x past the last frame, so the source is never in shot
+const T_VEIL = 0.03; // how far in a cat comes before it is fully faded up
 
-// Out of step on purpose. The meander and the counter-river share a wavelength
-// of 1.9 — they are meshed into each other, so they have to — and the
-// under-river's is 1.8. A fourth course on any of those reads as one more voice
-// in a rhythm the eye has already learned. This one is the meander's wavelength
-// over the golden ratio, which is the one ratio with no good small whole-number
-// approximation: the dips never fall into step with the bends underneath them,
-// and what is in shot keeps changing for the whole fourteen seconds. Derived
-// from the meander rather than typed, so it stays de-synced if the meander moves.
-const PHI = (1 + Math.sqrt(5)) / 2;
+// The drift — the small courses leaning slightly nearer the river and away from
+// it again, so the channels they run in breathe instead of holding one width for
+// a minute and a half.
+//
+// It is a function of where a course *is*, not of how far along it the cats have
+// swum, and that is the whole reason it is affordable. Two currents crossing the
+// same stretch of river lean the same way by the same amount, so the gap between
+// *them* never changes and only their gap to the river does. Give each its own
+// phase instead and they lean opposite ways at the same place, closing on each
+// other by twice DRIFT — and counter/under has 0.027 of daylight to its name,
+// which will not pay for that.
+//
+// It goes onto the integrated points and not into the heading, which is the
+// thing that makes that exact. A heading offset is turned into sideways movement
+// by however steeply the course is running at the time — sec² of the local
+// angle, which is 1 where a course is flat and 2.6 where the meander's partner
+// is at full swing — so two courses passing one x would lean by different
+// amounts and the gap between them would open and close after all. That was
+// measured, not guessed: in the heading, counter/under went from 0.027 to 0.015.
+//
+// DRIFT is then bounded by the tightest pair it can still move, which is a small
+// course against the river, since the river does not drift. river-check reports
+// what survives.
+const DRIFT = 0.01; // how far across the flow a small course leans, each way
+const DRIFT_LEN = 7.4; // and the x it takes to lean one way and back
+
+/**
+ * Lean a course towards the river and away from it again, in place.
+ *
+ * Only y moves. These courses all run within a few degrees of horizontal, so
+ * across the flow *is* up and down for them, and moving in y alone keeps every
+ * course's x — and so its place in the drift — exactly where it was.
+ *
+ * The headings are left alone on purpose. The steepest this adds is
+ * DRIFT·2π/DRIFT_LEN, half a degree, which is not worth rebuilding a course over
+ * and is well inside what the cats' own rotation would show.
+ */
+function lean(course) {
+  for (let i = 0; i <= course.n; i++) course.ys[i] += DRIFT * Math.sin((TAU * course.xs[i]) / DRIFT_LEN);
+  return course;
+}
 
 // The squiggles. Under the teeth the course above is doing right angles and this
 // one is nearly straight for thirty seconds of frame, which is a long time to
@@ -206,11 +249,11 @@ function under(u) {
   u -= H_ARC;
   const open = ramp(u, C_AT, C_AT + C_WIDE);
   const amp = C_TIGHT + (C_OPEN - C_TIGHT) * open;
-  const lean = (C_RISE / C_WIDE) * (ramp(u, C_AT, C_AT + 0.25) - ramp(u, C_AT + C_WIDE - 0.25, C_AT + C_WIDE));
+  const rise = (C_RISE / C_WIDE) * (ramp(u, C_AT, C_AT + 0.25) - ramp(u, C_AT + C_WIDE - 0.25, C_AT + C_WIDE));
   return (
     Math.PI +
     amp * Math.sin((TAU * (u + C_PHASE)) / C_LEN) +
-    lean +
+    rise +
     SQUIGGLES.reduce((a, s) => a + squiggle(u, s), 0)
   );
 }
@@ -249,29 +292,39 @@ export function makeCurrents(river, marks) {
     C_LANES,
   );
 
-  // The top river, from where the frame's right edge is at T_AT to a lead past
-  // where it is when the burst ends.
+  // The top river. Running against the river means integrating from its *right*
+  // hand end, so the mouth — the end the cats fade out at — is the one that
+  // lands at the x the frame reaches at T_AT, and the source is away off to the
+  // right where the frame never gets to at all.
   //
-  // Two things are being solved at once by starting on phase 0. A sine-generated
-  // curve is at its furthest *up* where its heading crosses zero rising, so
-  // phase 0 puts the highest point of the whole course at u = 0 — the source is
-  // the one place guaranteed to be off the top of the frame, which is what stops
-  // a file of cats fading up in mid-air the way the under-river used to. And it
-  // fixes where the origin has to go: the curve only ever hangs *below* its
-  // source, by up to a full excursion, so the source sits an excursion above the
-  // depth the dips are wanted at.
-  const topLen = snakeLen / PHI;
-  const excursion = (T_AMP * topLen) / Math.PI;
+  // Two things fall out of the base heading being π. The deepest point of the
+  // whole course is now u = 0, which is that unreachable right-hand end, so the
+  // origin is simply the depth the dips are wanted at. And the mouth would
+  // otherwise land wherever the arithmetic left it — in mid-air, in shot,
+  // visibly fading cats out of nothing from 52s to 60s. So the arc is rounded up
+  // to a half-odd number of wavelengths, which is exactly where the curve is at
+  // its highest, and the mouth goes off the top of the frame instead. Rounded
+  // *up*, so the course only ever reaches further right, where nothing sees it —
+  // rounding down would pull the mouth in and start it late.
+  const bT = bessel0(T_AMP);
+  const span = (rightEdgeAt(burst) + T_LEAD - rightEdgeAt(T_AT)) / bT;
+  const arc = (Math.ceil(span / snakeLen - 0.5) + 0.5) * snakeLen;
+  const topX = rightEdgeAt(T_AT) + arc * bT;
   const topRiver = makeCourse(
-    (u) => T_AMP * Math.sin((TAU * u) / topLen),
-    (rightEdgeAt(burst) + T_LEAD - rightEdgeAt(T_AT)) / bessel0(T_AMP),
-    rightEdgeAt(T_AT),
-    top + T_DEEP - excursion,
+    (u) => Math.PI + T_AMP * Math.sin((TAU * u) / snakeLen),
+    arc,
+    topX,
+    top + T_DEEP,
     T_LANES,
   );
-  // Which is what tells river.js to fade its cats in as they come into shot
-  // rather than letting the top edge cut them off. No other course carries one.
+  // The two things that make it the skinny one. `veil` fades its cats up as they
+  // come into shot rather than letting the top edge cut them off, and `scale`
+  // draws them smaller than the cats on every other course. No other course
+  // carries either.
   topRiver.veil = T_VEIL;
+  topRiver.scale = T_SCALE;
 
-  return [counter, underRiver, topRiver];
+  // All three lean together, which is the one thing that keeps their own gaps
+  // where they were. The river is not in this list and does not move.
+  return [counter, underRiver, topRiver].map(lean);
 }
