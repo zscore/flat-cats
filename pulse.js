@@ -12,11 +12,23 @@
  * VISIBLE. A hit that swells a cat which is off the top of a riser, or two
  * frames downstream, is a hit that does nothing. So the choosing is done
  * against the frame at the moment of the hit: the arc of each course that is
- * actually on screen is found by binary search — every course's x is monotonic,
- * the river's rising and the counter-currents' falling, so the visible part is
- * always one contiguous run — and a few hashed candidates inside it are tried.
- * If none of them is in frame vertically too, the next course is asked, and only
- * when all three have nothing does the hit pass without a swell.
+ * actually on screen is found by binary search — a course's x runs broadly one
+ * way, the river's rising and the counter-currents' falling — and a few hashed
+ * candidates inside it are tried. If none of them is in frame vertically too,
+ * the next course is asked, and only when all three have nothing does the hit
+ * pass without a swell.
+ *
+ * Broadly one way, and that word is load-bearing. This used to say the courses
+ * were monotonic, which they have not been for some time: the under-river
+ * arrives on a hook that runs right before it runs left, and the river leans
+ * 0.05 back into itself coming out of the last riser. A binary search on x was
+ * asking those arrays a question they cannot answer — it happened to cost
+ * nothing measurable, which is the only reason it went unseen for so long. So
+ * the search is not done on x at all now. course.js carries `climb` and `dip`
+ * alongside it, which are non-decreasing however the course wanders, and the
+ * window is bracketed on those instead. It is a superset of what is visible
+ * rather than a guess at it, which is the property that matters, because the
+ * tries re-test every candidate against the frame anyway.
  *
  * Visible for the whole swell, not just at the hit: the cat swims on and the
  * frame pans on while it grows, so a candidate has to be in shot at both ends
@@ -95,13 +107,22 @@ export function swell(age) {
   return MAX_SWELL * smooth(x);
 }
 
-/** First index at or past `target` along a monotonic run of x. */
-function seek(xs, n, rising, target) {
+/**
+ * First index at which a non-decreasing `arr` reaches `target`, or passes it if
+ * `strict`. The arrays are course.js's `climb` and `dip`, which are
+ * non-decreasing however the course itself wanders — which is the whole reason
+ * they exist and the reason this can be a binary search at all.
+ */
+function bound(arr, n, target, strict) {
   let lo = 0;
-  let hi = n;
+  // n + 1, because the arrays hold n + 1 samples and the last of them is a place
+  // on the course like any other. The search this replaced stopped at n and so
+  // could never offer it — one sample, at the mouth, inside the fade that the
+  // choosing excludes anyway, which is why it never showed up as a lost beat.
+  let hi = n + 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (rising ? xs[mid] < target : xs[mid] > target) lo = mid + 1;
+    if (strict ? arr[mid] <= target : arr[mid] < target) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -130,10 +151,19 @@ function margin(course, i, camX, camY, halfW) {
  * the score on a cat that had left the frame by the time it finished growing.
  */
 function somewhereVisible(course, camX, camY, halfW, seed, swim, pan, fade) {
-  const { xs, n } = course;
-  const rising = xs[n] > xs[0];
-  const a = seek(xs, n, rising, camX - halfW + INSET);
-  const b = seek(xs, n, rising, camX + halfW - INSET);
+  const { n, rising, climb, dip } = course;
+  // The frame's two edges, in the course's own direction, so that `a` is the
+  // near one whichever way it runs. A sample can only be in shot if the course
+  // has reached the near edge by then and has not passed the far one yet, which
+  // is what `climb` and `dip` answer — so the window is every sample that could
+  // be visible, and never a guess at which ones are. The tries below test each
+  // candidate against the frame themselves, so too wide costs a try and too
+  // narrow costs a cat.
+  const way = rising ? 1 : -1;
+  const near = Math.min(way * (camX - halfW + INSET), way * (camX + halfW - INSET));
+  const far = Math.max(way * (camX - halfW + INSET), way * (camX + halfW - INSET));
+  const a = bound(climb, n, near, false);
+  const b = bound(dip, n, far, true);
   const step = course.length / n; // arc length one sample covers
   // How far along its own samples the cat gets before the swell is over.
   const ahead = Math.round((swim * PULSE) / step);
@@ -143,8 +173,8 @@ function somewhereVisible(course, camX, camY, halfW, seed, swim, pan, fade) {
   // opacity its neighbours have, so swelling it is invisible beside them: at
   // one beat 42s into the burst the choosing took a cat at 2% opacity with 185
   // fully lit ones on screen. Being in the frame was never the whole of it.
-  const lo = Math.max(Math.min(a, b), Math.ceil(fade / step));
-  const hi = Math.min(Math.max(a, b), Math.floor((course.length - fade) / step) - ahead);
+  const lo = Math.max(a, Math.ceil(fade / step));
+  const hi = Math.min(b, Math.floor((course.length - fade) / step) - ahead);
   if (hi <= lo) return null;
 
   // The best of the tries rather than the first that fits. Both are one pass and

@@ -52,7 +52,35 @@ export function makeCourse(θ, length, ox = 0, oy = 0, lanes = 1) {
     x += Math.cos(ths[i]) * STEP;
     y += Math.sin(ths[i]) * STEP;
   }
-  return { xs, ys, ths, n, x0, x1, length, lanes };
+  // Two arrays that let a caller binary-search this course by x, which xs itself
+  // does not support. A course is not obliged to run one way and two here do
+  // not: the under-river arrives on a hook, which travels right for its first
+  // half-second of arc before turning left for the rest of its length, and the
+  // river leans 0.05 back into itself as it blends out of the last riser, where
+  // the heading passes π/2 and x gives some of itself back. Neither is noise and
+  // neither is a mistake — they are the shapes, and a search that assumes they
+  // do not happen is answering a question the array cannot support.
+  //
+  // Fixing that by widening the search was tried first, and it is not enough: a
+  // wider target does not repair the search itself, and it still failed to reach
+  // 316 visible samples over a full pan where a plain search failed to reach
+  // 4157. So the monotonicity is built rather than assumed. `climb[i]` is the
+  // furthest along the course has got by i, and `dip[i]` the nearest it ever
+  // comes back to at i or after; both are non-decreasing by construction,
+  // whatever xs does in between. Anything at or before `climb` reaching a bound,
+  // and at or after `dip` passing one, brackets every sample inside it — exactly,
+  // and with no constant to keep in step with the shapes.
+  //
+  // Held in the course's own direction, so a caller does not case-split on which
+  // way it runs. `rising` is which that is.
+  const rising = xs[n] > xs[0];
+  const way = rising ? 1 : -1;
+  const climb = new Float64Array(n + 1);
+  const dip = new Float64Array(n + 1);
+  for (let i = 0; i <= n; i++) climb[i] = i ? Math.max(climb[i - 1], way * xs[i]) : way * xs[0];
+  for (let i = n; i >= 0; i--) dip[i] = i < n ? Math.min(dip[i + 1], way * xs[i]) : way * xs[n];
+
+  return { xs, ys, ths, n, x0, x1, length, lanes, rising, climb, dip };
 }
 
 /** A course's point and heading at distance `u`, interpolated between samples. */
