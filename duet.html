@@ -1,0 +1,41 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>flat cats — the score, on cats, over the record</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0d; overflow: hidden; }
+  body { font: 12px ui-monospace, monospace; color: #6a6a72; letter-spacing: 0.04em; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; left: 12px; bottom: 10px; pointer-events: none; }
+  #hud b { color: #b9b9c2; font-weight: 500; }
+
+  #panel {
+    position: fixed; top: 0; right: 0; width: 274px; padding: 14px 16px 16px;
+    max-height: 100vh; overflow-y: auto; background: #111114; border-left: 1px solid #1e1e24;
+  }
+  #panel.hidden { display: none; }
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; margin-bottom: 9px; }
+  .row label { grid-column: 1 / -1; color: #7d7d88; }
+  .row .read { color: #b9b9c2; text-align: right; font-variant-numeric: tabular-nums; }
+  #panel select, #panel button {
+    grid-column: 1 / -1; width: 100%; padding: 4px 6px; background: #191920;
+    color: #cfcfd8; border: 1px solid #2a2a33; border-radius: 3px; font: inherit;
+  }
+  #panel button { margin-top: 6px; cursor: pointer; }
+  #panel button:hover { background: #22222b; }
+  input[type=range] { width: 100%; accent-color: #8a8a99; }
+  #tip { margin-bottom: 12px; color: #4e4e57; line-height: 1.5; }
+  #rec { border-bottom: 1px solid #1e1e24; margin-bottom: 12px; }
+</style>
+<canvas id="c"></canvas>
+<div id="panel">
+  <div id="tip">
+    click anywhere to play · space pauses · ←/→ scrub · <b>h</b> hides this<br />
+    <b>recording</b> is the piano and <b>amount of meow</b> the cats — drag either
+    to zero to hear the other alone. <b>how many meows</b> drops notes at random
+    instead of turning them down; the cats keep every note either way.
+  </div>
+  <div id="rec"></div>
+  <div id="knobs"></div>
+</div>
+<div id="hud">loading…</div>
+<script type="module" src="duet.js"></script>

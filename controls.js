@@ -39,8 +39,12 @@ const ROWS = [
 /**
  * Mount the panel into `el`. `onGain` gets the master level, which is the one
  * control that is not a synth setting — it belongs to the graph, not the tone.
+ *
+ * `master: false` leaves that last row out, for a page that has more than one
+ * level to set and wants them in one place rather than one here and one
+ * elsewhere. duet.html does; song.html does not.
  */
-export function mountControls(el, { onGain, gain = 0.5 } = {}) {
+export function mountControls(el, { onGain, gain = 0.5, master = true } = {}) {
   el.innerHTML = '';
 
   const mapping = row(el, 'sample mapping');
@@ -58,7 +62,7 @@ export function mountControls(el, { onGain, gain = 0.5 } = {}) {
   for (const [label, obj, key, min, max, step, fmt] of ROWS) {
     slider(el, label, obj[key], { min, max, step, fmt }, (v) => (obj[key] = v));
   }
-  slider(el, 'master', gain, { min: 0, max: 1, step: 0.01, fmt: pct }, onGain);
+  if (master) slider(el, 'master', gain, { min: 0, max: 1, step: 0.01, fmt: pct }, onGain);
 
   const reset = document.createElement('button');
   reset.textContent = 'reset to defaults';
@@ -76,7 +80,8 @@ function row(el, label) {
   return div;
 }
 
-function slider(el, label, value, { min, max, step, fmt }, apply) {
+/** One labelled range row. Exported so a page can add rows of its own. */
+export function slider(el, label, value, { min, max, step, fmt }, apply) {
   const div = row(el, label);
   const input = document.createElement('input');
   input.type = 'range';
