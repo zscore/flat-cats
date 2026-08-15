@@ -22,7 +22,8 @@ import { tailBurst, BURST_LENGTH as TAIL_LENGTH } from './tail.js';
 import { faceBurst, BURST_LENGTH as FACE_LENGTH } from './face.js';
 import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
 import { riverBurst, BURST_LENGTH as RIVER_LENGTH } from './river.js';
-import { checkerBurst, ground } from './checkers.js';
+import { checkerBurst } from './checkers.js';
+import { twinkleBurst, BURST_LENGTH as TWINKLE_LENGTH } from './twinkle.js';
 
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
 const EDGE = 0.08; // keeps a cat's centre off the left and right edges
@@ -33,9 +34,11 @@ const MAX_LIFE = 2.5; // the longest note here is 10.7s; nobody wants that on sc
 // Where the hand-placed bursts go, in seconds. Same convention as viz.js: they
 // are the one thing on screen no note asked for, so they say so out loud. The
 // tail burst runs 30s from 20s and the face burst 14.6s from 50s, so the river
-// waits until both are clear and takes 72s to 110s — which leaves the back of
-// the piece for the spiral. The spiral is the exception: it picks its own
-// moment off the score, below, and is told about the other three.
+// starts as soon as both are clear and runs 61s from 65s — it does not choose
+// that length, it is however long the course takes to pan at a gentle rate —
+// which leaves the back of the piece for the spiral. The spiral is the
+// exception: it picks its own moment off the score, below, and is told about
+// the other three so it lands somewhere none of them are.
 const BURSTS = [20];
 const FACE_BURSTS = [50];
 const RIVER_BURSTS = [72];
@@ -91,6 +94,7 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
 
   const sprites = arrange(notes, cats);
   const spiral = planSpiral(notes);
+  const twinkle = planTwinkle(notes);
   const ctx = canvas.getContext('2d');
 
   function resize() {
@@ -102,9 +106,10 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
   resize();
 
   return {
-    draw: (t) => draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral }),
+    draw: (t) => draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle }),
     cast: cats.length,
     spiral,
+    twinkle,
   };
 }
 
@@ -123,12 +128,7 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
  * nearly empty.
  */
 function planSpiral(notes) {
-  const first = new Map();
-  for (const n of notes) {
-    const beat = Math.round(n.tScore * 1000);
-    if (!(first.get(beat) <= n.t)) first.set(beat, n.t);
-  }
-  const onsets = [...first.values()].sort((a, b) => a - b);
+  const onsets = beatOnsets(notes);
 
   const busy = [
     ...BURSTS.map((t) => [t, t + TAIL_LENGTH]),
@@ -150,6 +150,32 @@ function planSpiral(notes) {
     }
   }
   return { at, beats: onsets.filter((s) => s >= at && s < at + SPIRAL_LENGTH).map((s) => s - at) };
+}
+
+/**
+ * One time per distinct score beat. A chord is one beat, not twenty — without
+ * this a twenty-note chord would be twenty cats stacked on one spiral slot, or
+ * twenty stars in the same corner of the sky.
+ */
+function beatOnsets(notes) {
+  const first = new Map();
+  for (const n of notes) {
+    const beat = Math.round(n.tScore * 1000);
+    if (!(first.get(beat) <= n.t)) first.set(beat, n.t);
+  }
+  return [...first.values()].sort((a, b) => a - b);
+}
+
+/**
+ * When the stars run, and the beats that light them. This is the one burst
+ * anchored to the end of the score rather than to a moment chosen inside it —
+ * the piece closes on it, so it hangs off the last note rather than off a
+ * number typed here. Move the score and it follows.
+ */
+function planTwinkle(notes) {
+  const end = notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
+  const at = end - TWINKLE_LENGTH;
+  return { at, beats: beatOnsets(notes).filter((s) => s >= at).map((s) => s - at) };
 }
 
 /** One placement per note, computed once — nothing is random at draw time. */
@@ -194,7 +220,7 @@ function firstAfter(sprites, t) {
 }
 
 /** Pure in (sprites, t): scrub back an hour later and the frame is identical. */
-function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral }) {
+function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle }) {
   const { width: W, height: H } = canvas;
   ctx.clearRect(0, 0, W, H);
 
@@ -204,10 +230,11 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   const groundAt = t - spiral.at - SPIRAL_LENGTH / 2;
   checkerBurst(ctx, W, H, groundAt, cats);
 
-  // While the lozenges are up the voices step back and let them have it. They
-  // are faded on the ground's own ramp rather than cut, so neither pops, and
-  // at full ground they are not drawn at all — which keeps `shown` honest.
-  const voices = 1 - ground(groundAt);
+  // Once the ground starts, the voices are finished for good. They fade rather
+  // than cut, so nothing pops, but they never come back: the lozenges and then
+  // the stars close the piece out and the per-note cats have no part in it.
+  // Below the threshold they are not drawn at all, which keeps `shown` honest.
+  const voices = groundAt < 0 ? 1 : 1 - clamp01(groundAt / 0.8);
 
   let shown = 0;
   // Oldest first, so the newest cat lands on top of the ones it is replacing.
@@ -234,5 +261,7 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   for (const at of FACE_BURSTS) faceBurst(ctx, W, H, t - at, faces, faceImages);
   for (const at of RIVER_BURSTS) riverBurst(ctx, W, H, t - at, cats);
   spiralBurst(ctx, W, H, t - spiral.at, spiral.beats, cats);
+  // Last, and over everything: the stars are the top of the picture.
+  twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.beats, cats);
   return shown;
 }

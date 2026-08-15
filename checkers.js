@@ -131,13 +131,8 @@ function sweep(ctx, W, H, s, cats, { dur, dir, cell, radial, gain = 1, hold = HO
   }
 }
 
-/**
- * How present the ground is, 0…1. Exported because cats.js fades the per-note
- * cats out against it — the voices and the lozenges are the same picture twice
- * over, and one of them has to give way. One definition, two callers, so they
- * cannot come apart.
- */
-export function ground(since) {
+/** How present the ground is, 0…1 — its own fade, in and then out. */
+function ground(since) {
   if (since < 0 || since > BURST_LENGTH) return 0;
   return ramp(since, 0, 0.8) * (1 - ramp(since, BURST_LENGTH - 1.2, BURST_LENGTH));
 }
