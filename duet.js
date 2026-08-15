@@ -107,7 +107,7 @@ mountLevels(document.getElementById('rec'));
 
 // Families and casting, exactly as song.js does them — the meows have to be the
 // same meows, or this page compares two things at once.
-const FAMILIES = ['brush', 'food', 'isolation'];
+const FAMILIES = ['low', 'mid', 'high'];
 const median = (xs) => xs.sort((a, b) => a - b)[xs.length >> 1];
 const byVoice = new Map();
 for (const n of score.notes) byVoice.set(n.voice, [...(byVoice.get(n.voice) ?? []), n.degree]);

@@ -102,9 +102,11 @@ export const MAPPINGS = {
   /** One fixed sample per part — the same cry all piece, only retuned. */
   'one-per-voice': (s, note) => s[Math.floor(rand(note.voice * 40503) * s.length)],
 
-  /** Context by the note's own register rather than by its part. */
+  /** Family by the note's own register rather than by its part. The thresholds
+   *  are the same ones pick.mjs banded the samples with, so this asks for a cat
+   *  that really was recorded in the register the note wants. */
   register: (s, note) => {
-    const family = note.hz < 380 ? 'brush' : note.hz < 800 ? 'food' : 'isolation';
+    const family = note.hz < 380 ? 'low' : note.hz < 800 ? 'mid' : 'high';
     return nearest(s, note.hz, family);
   },
 

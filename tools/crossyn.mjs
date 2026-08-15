@@ -37,13 +37,13 @@ const arg = (k, d) => {
  *
  * `hi` is the top of the band in Hz. Retune these by ear against your own
  * track; they are the first thing to reach for if a voice is landing on the
- * wrong part. The voices are pick.mjs's three situations: brush, food,
- * isolation. Swapping the names here swaps which cat is on which synth.
+ * wrong part. The voices are pick.mjs's three registers: low, mid, high (plus
+ * the purrs). Swapping the names here swaps which cat is on which synth.
  */
 const BANDS = [
-  { name: 'low',  hi:  260,      voice: 'purr',      for: 'bass, sub' },
-  { name: 'mid',  hi: 1400,      voice: 'brush',     for: 'pads, chords, body' },
-  { name: 'high', hi: Infinity,  voice: 'food',      for: 'leads, plucks, air' },
+  { name: 'low',  hi:  260,      voice: 'purr', for: 'bass, sub' },
+  { name: 'mid',  hi: 1400,      voice: 'mid',  for: 'pads, chords, body' },
+  { name: 'high', hi: Infinity,  voice: 'high', for: 'leads, plucks, air' },
 ];
 
 const N = 2048;                 // ~46 ms at 44.1 k — long enough to resolve a bass partial

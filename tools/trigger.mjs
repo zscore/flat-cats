@@ -31,9 +31,9 @@ const arg = (k, d) => {
 
 /** Which cat answers which register. Same idea as crossyn's BANDS. */
 const BANDS = [
-  { name: 'low',  hi:  260,     voice: 'isolation', for: 'bass, sub' },
-  { name: 'mid',  hi: 1400,     voice: 'brush',     for: 'pads, chords' },
-  { name: 'high', hi: Infinity, voice: 'food',      for: 'leads, plucks' },
+  { name: 'low',  hi:  260,     voice: 'low',  for: 'bass, sub' },
+  { name: 'mid',  hi: 1400,     voice: 'mid',  for: 'pads, chords' },
+  { name: 'high', hi: Infinity, voice: 'high', for: 'leads, plucks' },
 ];
 
 const N = 2048;            // onset resolution: ~43 ms at 48 k

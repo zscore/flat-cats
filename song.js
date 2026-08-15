@@ -41,12 +41,12 @@ mountControls(document.getElementById('knobs'), {
   onGain: (v) => synth.master.gain.setTargetAtTime(v, ctx.currentTime, 0.02),
 });
 
-// Each MIDI part keeps one cat's recording context for the whole piece, picked
-// by where the part sits. The three contexts are how the meows were recorded —
-// brushed, waiting for food, alone in a strange room — not three timbres, so
-// which register gets which is arbitrary. That a part does not change halfway
-// through is the bit that matters.
-const FAMILIES = ['brush', 'food', 'isolation'];
+// Each MIDI part keeps one family of meows for the whole piece, picked by where
+// the part sits. The families used to be how the meows were recorded — brushed,
+// waiting for food, alone in a strange room — which the CC0 pool cannot know, so
+// they are now the register the cat actually cried in. Low parts get low cats.
+// That a part does not change halfway through is still the bit that matters.
+const FAMILIES = ['low', 'mid', 'high'];
 const median = (xs) => xs.sort((a, b) => a - b)[xs.length >> 1];
 const byVoice = new Map();
 for (const n of score.notes) byVoice.set(n.voice, [...(byVoice.get(n.voice) ?? []), n.degree]);
