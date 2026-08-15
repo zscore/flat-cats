@@ -62,6 +62,7 @@ const SQUIGGLES = arr('SQUIGGLES');
 const K = Object.fromEntries(
   ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'WAVE_ARC', 'WAVE_AMP',
    'WAVE_LEN', 'BLEND', 'TEETH', 'RISER', 'RUN', 'ROUND', 'SNAKE_ARC', 'SNAKE_AMP', 'SNAKE_LEN',
+   'WAVER_SWING', 'WAVER_BENDS', 'WAVER_AT', 'WAVER_IN', 'WAVER_LAST',
    'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
    'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD',
    'H_ARC', 'H_TURN',
@@ -82,12 +83,32 @@ function crenel(v) {
   return -ramp(w, r / 2, r / 2 + rr) + ramp(w, r / 2 + i, r / 2 + i + rr)
     + ramp(w, 1.5 * r + i, 1.5 * r + i + rr) - ramp(w, 1.5 * r + 2 * i, 1.5 * r + 2 * i + rr);
 }
-const heading = (u) => {
+const CLIMB = K.RISER - K.ROUND;
+const UP_AT = K.RUN / 2 + K.ROUND, DOWN_AT = 1.5 * K.RUN + K.RISER + K.ROUND;
+function waver(u) {
+  const v = (u - SQ_AT) / TOOTH;
+  if (v <= 0 || v >= K.TEETH) return 0;
+  const k = Math.floor(v);
+  const grow = ramp(k, K.WAVER_AT, K.WAVER_AT + K.WAVER_IN);
+  if (grow <= 0) return 0;
+  const a = (v - k) * TOOTH;
+  const q = a >= DOWN_AT && a < DOWN_AT + CLIMB ? (a - DOWN_AT) / CLIMB
+    : a >= UP_AT && a < UP_AT + CLIMB ? (a - UP_AT) / CLIMB : -1;
+  if (q < 0) return 0;
+  const bends = k === K.TEETH - 1 ? K.WAVER_LAST : K.WAVER_BENDS;
+  const amp = (TAU * K.WAVER_SWING * bends) / CLIMB;
+  return grow * amp * ((1 - Math.cos(TAU * q)) / 2) * Math.sin(TAU * bends * q);
+}
+// The river with the waver in it, and — only so the drift can be measured —
+// the river without. Everything downstream uses the first.
+const shape = (wave) => (u) => {
   const stiff = ramp(u, SQ_IN, SQ_AT), loose = ramp(u, SQ_OUT, SN_AT);
   return (1 - stiff) * K.WAVE_AMP * Math.sin((TAU * u) / K.WAVE_LEN)
     + (stiff - loose) * (Math.PI / 2) * crenel((u - SQ_AT) / TOOTH)
-    + loose * K.SNAKE_AMP * Math.sin((TAU * (u - SN_AT)) / K.SNAKE_LEN);
+    + loose * K.SNAKE_AMP * Math.sin((TAU * (u - SN_AT)) / K.SNAKE_LEN)
+    + (wave ? waver(u) : 0);
 };
+const heading = shape(true);
 
 const n = Math.ceil(LENGTH / STEP);
 const xs = [], ys = [], ths = [];
@@ -102,6 +123,24 @@ const xs = [], ys = [], ths = [];
 const base = ys[Math.round(SQ_AT / STEP)];
 const camY = base - K.DROP;
 const x0 = Math.min(...xs), x1 = Math.max(...xs);
+
+// ------------------------------------------------------------------ closes --
+
+// The waver's whole claim: it hands the river back where it borrowed it. Any
+// shortfall is not local — it is an offset carried into the meander and into
+// every clearance measured off it, so it is worth its own row. Integrate the
+// same river without the waver and compare at the end of the teeth.
+const plain = shape(false);
+let drift;
+{
+  let x = 0, y = 0;
+  for (let i = 0; i < Math.round(SQ_OUT / STEP); i++) {
+    const t = plain(i * STEP);
+    x += Math.cos(t) * STEP; y += Math.sin(t) * STEP;
+  }
+  const i = Math.round(SQ_OUT / STEP);
+  drift = Math.hypot(xs[i] - x, ys[i] - y);
+}
 
 // ------------------------------------------------------- the counter-river --
 
@@ -204,9 +243,32 @@ const half = (lanes) => (K.LANE * (lanes - 1) + K.CAT_H) / 2;
 const COURSES = [
   { name: 'river', xs, ys, half: half(K.LANES) },
   { name: 'counter', xs: bxs, ys: bys, half: half(K.B_LANES) },
-  { name: 'under', xs: cxs, ys: cys, half: half(K.C_LANES) },
+  // The hook is the one stretch of any course that is *meant* to be out of
+  // shot — it curls down past the bottom edge and back — so the floor measure
+  // starts after it. Everything else about the course is measured whole.
+  { name: 'under', xs: cxs, ys: cys, half: half(K.C_LANES), inShot: Math.round(K.H_ARC / STEP) },
   { name: 'top', xs: txs, ys: tys, half: half(K.T_LANES) * K.T_SCALE },
 ];
+// ------------------------------------------------------------------ floors --
+
+// The under-river's squiggles are budgeted against two edges, not one: the river
+// above, which `clear` measures, and the bottom of the frame, which nothing did.
+// A window with room to spare upward can still swing its cats out of the bottom
+// of the picture, and that is a thing you only see by looking. Measured from the
+// bottom of the ribbon, and only where a course is actually in shot.
+const floor = camY + 0.5;
+const floors = COURSES.filter((c) => c.name !== 'river').map((c) => {
+  let worst = Infinity, where = 0;
+  for (let i = c.inShot ?? 0; i < c.xs.length; i++) {
+    const g = floor - (c.ys[i] + c.half);
+    if (g < worst) { worst = g; where = c.xs[i]; }
+  }
+  // Reported as the second of the burst the frame has that x centred, because
+  // "0.003 at x 2.4" is not a thing anyone can go and look at and "at 14s" is.
+  return [c.name, worst, (where - (x0 - K.CAT_H)) / K.PAN];
+});
+const floorGap = Math.min(...floors.map(([, g]) => g));
+
 function apart(p, q) {
   let nearest = Infinity;
   for (let j = 0; j < q.xs.length; j++)
@@ -305,6 +367,12 @@ for (let m = 0; m < MOMENTS; m++) {
 const bad = selfIntersections();
 const rows = [
   ['leaves', `risers clear the frame's top edge by ${clears} frame-heights`, Number(clears) > 0.1],
+  ['closes', `the waver hands the river back ${drift.toFixed(4)} from where it borrowed it, by the` +
+    ` end of the teeth — an offset here is carried into the meander and into every clearance below`,
+    drift < 0.002],
+  ['floors', floors.map(([nm, g, t]) => `${nm} ${g.toFixed(3)} at ${t.toFixed(0)}s`).join(" · ") +
+    ` — frame-heights between the bottom of a ribbon and the bottom of the frame` +
+    `${floorGap <= 0 ? ', SOMETHING IS OUT OF SHOT' : ''}`, floorGap > 0],
   ['untied', bad ? `${bad} self-intersections` : 'no part of the course crosses any other', !bad],
   ['steady', speeds, true],
   ['wide', `${K.LANES} lanes, ${K.LANE} apart; tightest turn radius ${tightest.toFixed(3)}` +
@@ -369,6 +437,8 @@ writeFileSync(new URL('../out/river.html', import.meta.url),
 
 console.log(`wrote out/river.html — ${LENGTH.toFixed(1)} frame-heights, ${burst}s burst`);
 console.log(`leaves : risers clear the top by ${clears} frame-heights (${above} samples above it)`);
+console.log(`closes : waver drift ${drift.toFixed(4)} by the end of the teeth`);
+console.log(`floors : ${floors.map(([nm, g, t]) => `${nm} ${g.toFixed(3)} at ${t.toFixed(0)}s`).join(" · ")}`);
 console.log(`untied : ${bad} self-intersections`);
 console.log(`steady : ${speeds}`);
 console.log(`wide   : tightest radius ${tightest.toFixed(3)} vs inside lane ${inside.toFixed(3)}`);

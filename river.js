@@ -113,6 +113,48 @@ const RUN = 0.3; // and how far the flat runs between them go
 const ROUND = 0.14;
 const TOOTH = 2 * RISER + 2 * RUN;
 
+// The waver. Nine right angles take about twenty-five seconds of frame to pass
+// and nothing in them moves except past the edge of it: the comb is rigid and
+// the camera does all the work. So the risers waver — a squiggle laid over the
+// crenel, in a closing window on each riser and nowhere else.
+//
+// **On the risers and nowhere else** is the whole of it, and it is not a taste.
+// A heading wobble displaces a curve across itself, and a riser's across is
+// horizontal, so this is where a squiggle buys sideways movement. But the reason
+// it is confined here is closure, and closure here is not the property
+// currents.js relies on. There a window that is zero-mean in the heading hands
+// the course back where it borrowed it, because the course runs one way
+// throughout. A tooth does not: its two risers point opposite ways, so the same
+// wobble pushes one +x and the other −x, and a window that is zero-mean across
+// the whole tooth has the two halves *adding* rather than cancelling. Laid over
+// a tooth at a plausible amplitude that came to +0.098 in x and −0.075 in y by
+// the end of the teeth, and every one of those carried into the meander, which
+// put its crest through the top river. Measured, not feared.
+//
+// One window per riser, and the *same* profile in both, makes it exact instead.
+// Up the riser the heading is −π/2 and dx = sin δ; down it the heading is +π/2
+// and dx = −sin δ. Identical δ, opposite sign, and the x closes. dy is −cos δ
+// and +cos δ, so the y closes too — whatever shape the window is, and to all
+// orders rather than to first. The runs and the corners are left alone, which
+// costs the movement its vertical half and buys three things: the bottom runs
+// have only ~0.03 of clear water down to the under-river and do not move, the
+// corners are already the tightest turn in the river and get nothing added, and
+// the risers still climb and still leave the top of the frame.
+//
+// What is budgeted is the swing rather than the amplitude, because what this has
+// to fit inside is the 0.3 of run between a tooth's two risers, and both swing
+// toward each other. At 0.028 that leaves about 0.06 of daylight between the
+// ribbons. Holding the swing and *adding* bends is then exactly what tightening
+// a loop is: half the wavelength at the same excursion is a quarter of the
+// radius. river-check's `wide` row is where that lands.
+const WAVER_SWING = 0.028; // how far across itself a riser swings, frame-heights
+const WAVER_BENDS = 2; // quick bends per riser
+const WAVER_AT = 1.5; // teeth in before it starts, and how many teeth it takes to
+const WAVER_IN = 2; // come up to full. Read once per tooth, so each window still closes
+// The last tooth winds up: same swing, more bends in it, so a tighter turn. It
+// is the tooth on screen as the meander arrives.
+const WAVER_LAST = 3;
+
 // The closing meander. SNAKE_AMP was 1.9 — deep and serpentine — until the
 // counter-river below had to interlock with it, and could not: at 1.9 the
 // meander's own arms sit about 0.27 apart across the flow, and two ribbons need
@@ -159,11 +201,50 @@ function crenel(v) {
   );
 }
 
+// The straight part of a riser: from the end of one corner to the start of the
+// next, in tooth-local arc. Both risers are this long, which is what lets one
+// profile serve both — see the waver's note above.
+const CLIMB = RISER - ROUND;
+const UP_AT = RUN / 2 + ROUND; // where the climbing riser's straight begins
+const DOWN_AT = 1.5 * RUN + RISER + ROUND; // and the descending one's
+
+/**
+ * How far the waver bends the river at `u`. Zero everywhere but the straight of
+ * a riser, and the same profile on both risers of a tooth, which is what closes
+ * it — see WAVER_SWING above.
+ */
+function waver(u) {
+  const v = (u - SQ_AT) / TOOTH;
+  if (v <= 0 || v >= TEETH) return 0;
+  const k = Math.floor(v); // which tooth
+  // Strength is read once per tooth rather than continuously along the river, so
+  // it is one constant across both of a tooth's windows and they still cancel.
+  const grow = ramp(k, WAVER_AT, WAVER_AT + WAVER_IN);
+  if (grow <= 0) return 0;
+  const a = (v - k) * TOOTH; // how far into the tooth, in arc
+  const q =
+    a >= DOWN_AT && a < DOWN_AT + CLIMB
+      ? (a - DOWN_AT) / CLIMB
+      : a >= UP_AT && a < UP_AT + CLIMB
+        ? (a - UP_AT) / CLIMB
+        : -1; // a run or a corner: the waver does not go there
+  if (q < 0) return 0;
+  const bends = k === TEETH - 1 ? WAVER_LAST : WAVER_BENDS;
+  // The swing budget, as an amplitude: a sine-generated curve swings amp·len/2π
+  // across its own axis, and len is CLIMB/bends.
+  const amp = (TAU * WAVER_SWING * bends) / CLIMB;
+  return grow * amp * ((1 - Math.cos(TAU * q)) / 2) * Math.sin(TAU * bends * q);
+}
+
 /**
  * Where the river points at distance `u` along itself. The three stretches
  * overlap for BLEND either side and their weights sum to 1 throughout, so the
  * river stiffens into its corners and relaxes out of them rather than cutting
  * between two shapes.
+ *
+ * The waver is added rather than blended in, because it closes on its own: it
+ * has no weight to sum to one with, and it is zero everywhere the other two
+ * stretches are anything.
  */
 function heading(u) {
   const stiff = ramp(u, SQ_IN, SQ_AT);
@@ -171,7 +252,8 @@ function heading(u) {
   return (
     (1 - stiff) * WAVE_AMP * Math.sin((TAU * u) / WAVE_LEN) +
     (stiff - loose) * (Math.PI / 2) * crenel((u - SQ_AT) / TOOTH) +
-    loose * SNAKE_AMP * Math.sin((TAU * (u - SN_AT)) / SNAKE_LEN)
+    loose * SNAKE_AMP * Math.sin((TAU * (u - SN_AT)) / SNAKE_LEN) +
+    waver(u)
   );
 }
 

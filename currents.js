@@ -191,10 +191,27 @@ function lean(course) {
 //
 // They are listed the way the frame meets them, which is *backwards* along the
 // under-river: it runs right to left, so the later window is the lower `at`.
+// Two of them were once four windows apart: the course was squiggling for about
+// fourteen of the twenty-five seconds it spends under the right angles and lying
+// flat for the rest, and the flat stretches read as the course having given up
+// rather than as a rest between two squiggles. The two added here close those
+// gaps, so that from the moment the river above starts to waver to the moment
+// the meander takes over, this one is never doing nothing.
+//
+// No window shares a bend count with the one it runs into — 4, 3, 5, 4 down the
+// table — which is what keeps four squiggles in a row from settling into a
+// rhythm of their own. The two originals are unchanged, and the one at 1.5 is
+// still the tightest of them: the new pair are held to 0.060 and 0.070 of radius
+// against its 0.053, because the channel did not get any wider.
 const SQUIGGLES = [
+  // the last thing it does before the hook takes it out of shot, and the one
+  // that answers the river's own tightest tooth overhead
+  { at: 0.25, arc: 1.2, bends: 4, amp: 0.46, kink: 0.2, dip: 0.008 },
   // the tightest of them, under the last of the right angles — a 0.054 radius
   // against the 0.080 of the one below, in the same width of channel
   { at: 1.5, arc: 1.32, bends: 3, amp: 0.7, kink: 0.45, dip: 0.012 },
+  // filling what used to be nine seconds of flat between the two originals
+  { at: 2.95, arc: 1.95, bends: 5, amp: 0.4, kink: 0.28, dip: 0.006 },
   // and the first you see, under the middle of the teeth
   { at: 4.9, arc: 2.0, bends: 4, amp: 0.42, kink: 0.33, dip: 0.002 },
 ];
