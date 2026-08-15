@@ -48,8 +48,12 @@ const BANDS = [
 
 const N = 2048;                 // ~46 ms at 44.1 k — long enough to resolve a bass partial
 const HOP = N / 4;              // Hann at 75% overlap sums to a constant
-const MEOW_N = 512;             // meows are 8 kHz, so a shorter frame: ~64 ms
-const MEOW_HOP = MEOW_N / 4;
+// The meow frame is specified in TIME, not samples. It used to be a flat 512,
+// which was ~64 ms back when every meow was 8 kHz — at 48 kHz the same constant
+// is 10.7 ms, too short to resolve the 200 Hz end of the band it is measured
+// over. Derived per file from that file's own rate instead.
+const MEOW_SECS = 0.064;
+const nextPow2 = (x) => 1 << Math.ceil(Math.log2(x));
 const ONSET_RATIO = 1.7;        // band energy over its own recent mean = new meow
 const ONSET_FLOOR_DB = -48;     // below this a "rise" is just noise coming back
 
@@ -122,18 +126,19 @@ function loadBank(meowDir, soundDir) {
  */
 function loadVoice(manifest, voice, sr) {
   const bins = N / 2 + 1;
-  const w = hann(MEOW_N);
   const meows = [], dropped = [];
   for (const m of manifest.filter((x) => x.voice === voice)) {
     const { sr: msr, data } = readWav(join(m.dir, m.name));
+    const mn = nextPow2(Math.round(msr * MEOW_SECS)), mhop = mn / 4;
+    const w = hann(mn);
     // Smooth away this cat's own harmonic ripple, whose spacing is its f0.
     // Falls back to 250 Hz for a manifest without one rather than guessing high.
     const ord = order(msr, Math.max(250, (m.f0 || 0) * 1.1));
     const frames = [];
     let contrast = 0;
-    const lo = Math.round((200 / (msr / 2)) * (MEOW_N / 2));
-    const hi = Math.round((3800 / (msr / 2)) * (MEOW_N / 2));
-    for (let s = 0; s + MEOW_N <= data.length; s += MEOW_HOP) {
+    const lo = Math.round((200 / (msr / 2)) * (mn / 2));
+    const hi = Math.round((3800 / (msr / 2)) * (mn / 2));
+    for (let s = 0; s + mn <= data.length; s += mhop) {
       const { re, im } = frameFFT(data, s, w);
       const env = cepstralEnvelope(magnitudes(re, im), ord);
       // Its loudest-shaped frame is what it will sound like when it fires.
@@ -145,7 +150,7 @@ function loadVoice(manifest, voice, sr) {
     // A sample flatter than this is a tone control, not a vowel: it tilts the
     // song without ever sounding like a mouth. Dropped loudly, not averaged in.
     if (contrast < MIN_CONTRAST_DB) { dropped.push(`${m.name} (${contrast.toFixed(0)} dB)`); continue; }
-    if (frames.length) meows.push({ name: m.name, frames, hopSecs: MEOW_HOP / msr });
+    if (frames.length) meows.push({ name: m.name, frames, hopSecs: mhop / msr });
   }
   if (dropped.length) console.log(`  ${voice}: dropped ${dropped.length} too flat to sound like a mouth — ${dropped.join(', ')}`);
   return meows;
