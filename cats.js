@@ -22,6 +22,7 @@ import { tailBurst, BURST_LENGTH as TAIL_LENGTH } from './tail.js';
 import { faceBurst, BURST_LENGTH as FACE_LENGTH } from './face.js';
 import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
 import { riverBurst, BURST_LENGTH as RIVER_LENGTH } from './river.js';
+import { checkerBurst, ground } from './checkers.js';
 
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
 const EDGE = 0.08; // keeps a cat's centre off the left and right edges
@@ -197,9 +198,20 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   const { width: W, height: H } = canvas;
   ctx.clearRect(0, 0, W, H);
 
+  // The ground goes down before anything else. It runs off the spiral's clock,
+  // starting halfway through it, so the two are one gesture and not two that
+  // happen to overlap.
+  const groundAt = t - spiral.at - SPIRAL_LENGTH / 2;
+  checkerBurst(ctx, W, H, groundAt, cats);
+
+  // While the lozenges are up the voices step back and let them have it. They
+  // are faded on the ground's own ramp rather than cut, so neither pops, and
+  // at full ground they are not drawn at all — which keeps `shown` honest.
+  const voices = 1 - ground(groundAt);
+
   let shown = 0;
   // Oldest first, so the newest cat lands on top of the ones it is replacing.
-  for (let k = firstAfter(sprites, t - MAX_LIFE); k < sprites.length; k++) {
+  for (let k = firstAfter(sprites, t - MAX_LIFE); voices > 0.004 && k < sprites.length; k++) {
     const s = sprites[k];
     if (s.t > t) break;
     const age = (t - s.t) / s.life;
@@ -210,7 +222,7 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
     const w = h * (s.img.width / s.img.height);
 
     ctx.save();
-    ctx.globalAlpha = clamp01(fade);
+    ctx.globalAlpha = clamp01(fade) * voices;
     ctx.translate(s.x * W, s.y * H);
     if (s.flip) ctx.scale(-1, 1);
     ctx.drawImage(s.img, -w / 2, -h / 2, w, h);
