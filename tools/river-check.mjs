@@ -32,21 +32,27 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { STEP } from '../course.js';
 
 const river = await import('../river.js');
-const src = readFileSync(new URL('../river.js', import.meta.url), 'utf8');
+// The river's shape lives in river.js and the currents' in currents.js. Both
+// are read the same way, and which file a constant came from is not something
+// the audit cares about — only that it is the one the module actually uses.
+const src = ['../river.js', '../currents.js']
+  .map((f) => readFileSync(new URL(f, import.meta.url), 'utf8'))
+  .join('\n');
 
-// river.js keeps its internals private, which is right for the module and
+// Both modules keep their internals private, which is right for them and
 // awkward for a checker. Rather than export them just for this, read the
-// constants back out of the source and rebuild the course the same way.
+// constants back out of the source and rebuild the courses the same way.
 const num = (name) => {
   const m = src.match(new RegExp(`^const ${name} = ([-\\d./ ]+);`, 'm'));
-  if (!m) throw new Error(`no constant ${name} in river.js`);
+  if (!m) throw new Error(`no constant ${name} in river.js or currents.js`);
   return eval(m[1]);
 };
 const K = Object.fromEntries(
   ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'WAVE_ARC', 'WAVE_AMP',
    'WAVE_LEN', 'BLEND', 'TEETH', 'RISER', 'RUN', 'ROUND', 'SNAKE_ARC', 'SNAKE_AMP', 'SNAKE_LEN',
    'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
-   'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD']
+   'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD',
+   'C_ZIG_AT', 'C_ZIG_ARC', 'C_ZIG_IN', 'C_ZIG_AMP', 'C_KINK', 'C_ZIG_DIP']
     .map((n) => [n, num(n)]),
 );
 const TOOTH = 2 * K.RISER + 2 * K.RUN;
@@ -102,6 +108,7 @@ const bxs = [], bys = [];
 // The under-river, built the same way: it starts past the end of the teeth and
 // runs back past the river's own source.
 const sqX = xs[Math.round(SQ_OUT / STEP)];
+const zLen = K.C_ZIG_ARC / 4, zEnd = K.C_ZIG_AT + K.C_ZIG_ARC, zMid = K.C_ZIG_AT + K.C_ZIG_ARC / 2;
 const cArc = (sqX + K.C_LEAD - (x0 - K.C_LEAD)) / bessel0((K.C_TIGHT + K.C_OPEN) / 2);
 const cn = Math.ceil(cArc / STEP);
 const cxs = [], cys = [];
@@ -113,7 +120,11 @@ const cxs = [], cys = [];
     const open = ramp(u, K.C_AT, K.C_AT + K.C_WIDE);
     const amp = K.C_TIGHT + (K.C_OPEN - K.C_TIGHT) * open;
     const lean = (K.C_RISE / K.C_WIDE) * (ramp(u, K.C_AT, K.C_AT + 0.25) - ramp(u, K.C_AT + K.C_WIDE - 0.25, K.C_AT + K.C_WIDE));
-    const th = Math.PI + amp * Math.sin((TAU * (u + K.C_PHASE)) / K.C_LEN) + lean;
+    const zig = ramp(u, K.C_ZIG_AT, K.C_ZIG_AT + K.C_ZIG_IN) - ramp(u, zEnd - K.C_ZIG_IN, zEnd);
+    const dip = (-2 * K.C_ZIG_DIP / K.C_ZIG_ARC)
+      * (ramp(u, K.C_ZIG_AT - K.C_ZIG_IN, K.C_ZIG_AT) - 2 * ramp(u, zMid - K.C_ZIG_IN, zMid + K.C_ZIG_IN) + ramp(u, zEnd, zEnd + K.C_ZIG_IN));
+    const th = Math.PI + amp * Math.sin((TAU * (u + K.C_PHASE)) / K.C_LEN) + lean + dip
+      + zig * (K.C_ZIG_AMP * Math.sin((TAU * u) / zLen) - K.C_KINK * Math.sin((TAU * u) / (zLen / 2)));
     x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
   }
 }

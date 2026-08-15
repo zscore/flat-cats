@@ -9,15 +9,9 @@
  *            off the top of the frame, then comes back down and carries on
  *   snake    the corners relax into a meander that never crosses itself
  *
- * Running the other way, right to left, single file, are two more courses:
- *
- *   under    the early one, and the first thing on screen — it reaches further
- *            left than the river's own source. Tight and nearly straight in the
- *            shallow water under the right angles, opening into long swings
- *            under the wave where there is room to
- *   counter  the late one, set into the bends of the meander without touching
- *
- * Between them something is always swimming against the river.
+ * Running the other way, right to left, single file, are the currents —
+ * currents.js, built off this river's own landmarks rather than off coordinates
+ * of their own. Between them something is always swimming against the river.
  *
  * Three things worth writing down, because they are what the module is.
  *
@@ -52,21 +46,17 @@
  * code takes a course rather than knowing about the river: there are three now,
  * and one loop draws any of them.
  *
- * Where they can go is decided by where the river is *not*: about 0.23 of a
- * frame-height of clear water under the right angles, 0.60 under the opening
- * wave, and alongside the meander only the channel between its own bends. The
- * under-river is shaped to exactly that, which is why it cannot open out until
- * it is past the teeth.
+ * Where they can go is decided by where this river is *not* — currents.js is
+ * shaped to the clear water this one leaves, and says so in its own head.
  *
- * Not touching is the one thing here with no bound behind it. Everything else
- * is guaranteed by construction — right angles because a heading of π/2 is one,
- * no self-crossing because the amplitude stays under the ~2.2 rad where a
+ * Not touching is the one thing with no bound behind it. Everything else is
+ * guaranteed by construction — right angles because a heading of π/2 is one, no
+ * self-crossing because the amplitude stays under the ~2.2 rad where a
  * sine-generated curve folds. Two *different* curves clearing each other is not
- * something a bound gives you, so the phases and offsets were swept numerically
- * and river-check measures every pair, point against point: river/counter is
- * the tightest at 0.038. Move any constant and that moves with it — check it
- * rather than assuming it survived. It is also what cost the meander its depth,
- * as SNAKE_AMP explains below.
+ * something a bound gives you, so river-check measures every pair, point against
+ * point: river/counter is the tightest at 0.038. Move any constant and that
+ * moves with it — check it rather than assuming it survived. It is also what
+ * cost the meander its depth, as SNAKE_AMP explains below.
  *
  * Like draw() in viz.js, tailBurst() in tail.js, faceBurst() in face.js and
  * spiralBurst() in spiral.js this is a pure function of time — no counters, no
@@ -80,11 +70,12 @@
  * beats. It stays pure the same way everything else does — the cat a hit picks
  * is hashed from the hit's index, not remembered.
  *
- * tools/river-check.mjs draws all three courses and audits the claims below.
+ * tools/river-check.mjs draws every course and audits the claims below.
  */
 
 import { swells } from './pulse.js';
-import { STEP, makeCourse, at, bessel0 } from './course.js';
+import { STEP, makeCourse, at } from './course.js';
+import { makeCurrents } from './currents.js';
 
 // Everything here is in frame-heights: 1.0 is the height of the window. Widths
 // come from the aspect at draw time, so the river is the same river on any
@@ -124,72 +115,6 @@ const TOOTH = 2 * RISER + 2 * RUN;
 const SNAKE_ARC = 4.5; // how much river the closing meander gets
 const SNAKE_AMP = 0.9; // radians; stays under the ~2.2 that would fold the curve
 const SNAKE_LEN = 1.9; // arc length per bend
-
-// The counter-river: one file of cats swimming the other way, its bends set
-// into the first river's bends. It is single file because three abreast will
-// not fit through the channel — see river-check's "clear" row for the margin
-// that is actually left. It is not a separate burst and has no start time of
-// its own: it simply exists in the world alongside the meander, and the frame
-// finds it when it gets there.
-const B_LANES = 1;
-const B_AMP = 0.9; // same bend as the river it threads, so the mesh stays regular
-const B_LEN = 1.9;
-const B_PHASE = 1.04; // where in its own bend it starts — swept for the widest gap
-const B_DROP = 0.29; // and how far across the flow it sits from the meander's line
-// How far past the mouth of the meander it starts, so it arrives from off-frame
-// rather than appearing in view. It runs only the length of the meander and no
-// further: upstream of that the first river is climbing its risers, and a
-// counter-river carried on into them would swim straight through one.
-const B_LEAD = 0.9;
-
-// The under-river: the other counter-current, and the early one. It runs the
-// whole length of the piece *before* the meander — under the right angles and
-// on under the opening wave — and it is the first thing on screen, because it
-// reaches a lead further left than the river's own source does.
-//
-// What it does with the room is the point. Under the teeth there is only about
-// 0.23 of a frame-height of clear water beneath the runs, so it swims tight and
-// nearly straight; under the opening wave there is 0.60, so it opens out into
-// long lazy swings. Same course, same cats, and the shape reports how much space
-// it is in.
-const C_LANES = 1;
-const C_LOW = 0.24; // how far under the square runs it starts
-const C_TIGHT = 0.1; // heading amplitude in the shallow water under the teeth
-const C_OPEN = 0.8; // and in the deep water under the wave
-const C_LEN = 1.8; // arc length per swing
-const C_PHASE = 0;
-const C_AT = 6.5; // where along itself it starts opening out
-const C_WIDE = 1.5; // and how much arc it takes to do it
-// A slight upward lean, held only across that opening, lifts the course out of
-// the shallow room into the tall room. Integrated over C_WIDE it is this much
-// rise — without it the wide swings would go straight out of the bottom.
-const C_RISE = 0.1;
-const C_LEAD = 0.9;
-
-// The double squiggle. Under the teeth the course above is doing right angles
-// and this one is nearly straight for thirty seconds of frame, which is a long
-// time to watch a line. So one stretch of it tightens: a quick bend, and a
-// counter-bend at twice the rate riding on each one, laid *over* the long swing
-// rather than replacing it. Replacing it was the first attempt and it moved the
-// whole course 0.038 down and put the cats through the bottom of the frame — a
-// sine switched off mid-phase does not return to its own centre line, it stops
-// wherever it was and stays there.
-//
-// Short is what makes it affordable. A sine-generated curve swings about
-// amp·len/2π across its axis, so at a third the wavelength the same excursion
-// buys three times the bends, and there is very little room to spend: the
-// channel here is 0.053 of clear water up to the river and 0.036 down to the
-// edge of the frame. Both wavelengths divide C_ZIG_ARC a whole number of times,
-// which is what keeps the squiggle from displacing the course it sits on.
-const C_ZIG_AT = 4.9; // where along the under-river the tight stretch begins
-const C_ZIG_ARC = 2.0; // and how much arc it lasts — about eight seconds of frame
-const C_ZIG_IN = 0.4; // arc it takes to come on, and to go off again
-const C_ZIG_AMP = 0.3; // heading amplitude of the quick bend
-const C_KINK = 0.24; // and of the counter-bend riding on it
-// The channel is not centred on the course: 0.053 above, 0.036 below. So the
-// window is pushed this far *down* it, which is the difference between the two
-// margins ending up 0.026/0.024 and 0.019/0.030.
-const C_ZIG_DIP = 0.008;
 
 const TAU = Math.PI * 2;
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -250,44 +175,17 @@ const RIVER = makeCourse(heading, LENGTH, 0, 0, LANES);
 // centre a little under them so the risers have somewhere to leave to.
 const BASE = RIVER.ys[Math.round(SQ_AT / STEP)];
 
-// The counter-river is placed off the first river's own geometry rather than
-// off typed-in coordinates: it starts a lead past where the meander ends, sits
-// across the flow from the line the meander leaves on, and is long enough to
-// run back past where the meander began. Move the meander and it follows.
-const SNAKE_X = RIVER.xs[Math.round(SN_AT / STEP)];
-const SNAKE_Y = RIVER.ys[Math.round(SN_AT / STEP)];
-const COUNTER = makeCourse(
-  (u) => Math.PI + B_AMP * Math.sin((TAU * (u + B_PHASE)) / B_LEN),
-  (RIVER.x1 - SNAKE_X + B_LEAD) / bessel0(B_AMP),
-  RIVER.x1 + B_LEAD,
-  SNAKE_Y + B_DROP,
-  B_LANES,
-);
+// Where the river's own stretches begin and end. The currents are placed off
+// these rather than off typed-in coordinates, so moving a stretch moves them.
+const MARKS = {
+  snakeX: RIVER.xs[Math.round(SN_AT / STEP)],
+  snakeY: RIVER.ys[Math.round(SN_AT / STEP)],
+  teethX: RIVER.xs[Math.round(SQ_OUT / STEP)],
+  base: BASE,
+};
 
-/**
- * The under-river's heading. Two things happen across the same window: the
- * swing opens from C_TIGHT to C_OPEN, and a lean lifts the whole course into
- * the taller room that made the wider swing possible in the first place.
- */
-function under(u) {
-  const open = ramp(u, C_AT, C_AT + C_WIDE);
-  const amp = C_TIGHT + (C_OPEN - C_TIGHT) * open;
-  const lean = (C_RISE / C_WIDE) * (ramp(u, C_AT, C_AT + 0.25) - ramp(u, C_AT + C_WIDE - 0.25, C_AT + C_WIDE));
-  return Math.PI + amp * Math.sin((TAU * (u + C_PHASE)) / C_LEN) + lean;
-}
+const COURSES = [RIVER, ...makeCurrents(RIVER, MARKS)];
 
-// It starts a lead past where the teeth end and runs to a lead before the
-// river's own source — which is why it is on screen before the river is.
-const TEETH_X = RIVER.xs[Math.round(SQ_OUT / STEP)];
-const UNDER = makeCourse(
-  under,
-  (TEETH_X + C_LEAD - (RIVER.x0 - C_LEAD)) / bessel0((C_TIGHT + C_OPEN) / 2),
-  TEETH_X + C_LEAD,
-  BASE + C_LOW,
-  C_LANES,
-);
-
-const COURSES = [RIVER, COUNTER, UNDER];
 
 // As long as it takes to pan the whole course, plus a frame's width at each end
 // so the river arrives from off-screen and leaves the same way.
@@ -310,7 +208,7 @@ export function riverBurst(ctx, W, H, since, cats, beats = []) {
   const camX = RIVER.x0 - 0.5 * (W / H) - CAT_H + PAN * since;
   const camY = BASE - DROP;
   const frame = { camX, camY, halfW: 0.5 * (W / H), pan: PAN };
-  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP, EDGE_FADE);
+  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP);
 
   ctx.save();
   ctx.globalAlpha = alpha;
