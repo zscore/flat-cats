@@ -14,15 +14,24 @@
  * against the frame at the moment of the hit: the arc of each course that is
  * actually on screen is found by binary search — every course's x is monotonic,
  * the river's rising and the counter-currents' falling, so the visible part is
- * always one contiguous run — and a few hashed candidates inside it are tried
- * until one is in frame vertically too. If none is, the next course is asked,
- * and only when all three have nothing does the hit pass without a swell.
+ * always one contiguous run — and a few hashed candidates inside it are tried.
+ * If none of them is in frame vertically too, the next course is asked, and only
+ * when all three have nothing does the hit pass without a swell.
  *
  * Visible for the whole swell, not just at the hit: the cat swims on and the
  * frame pans on while it grows, so a candidate has to be in shot at both ends
  * of the pulse. Both halves of that were measured, and both were losing notes —
  * asking one course only dropped 32% of the score, and testing the hit alone
  * left another 6% growing off the edge of the frame.
+ *
+ * And visible is a distance, not a yes or a no. That was the third thing losing
+ * notes, and the least obvious, because every one of them passed: a cat one
+ * pixel inside the frame satisfies any test that only asks whether it is inside,
+ * and the courses are not equally well placed to offer better. So the choosing
+ * asks how far in, twice over — INSET is the width of the strip along each edge
+ * that no cat is picked from at all, and of what is left, the roomiest of the
+ * tries wins. Between them the score moved off the bottom edge and back into
+ * the ribbon; both constants carry the counts they were set from.
  *
  * CONTINUOUS. The envelope is smoothstep either side of the peak, so it leaves
  * zero, arrives at the peak, and returns to zero with no corner at any of the
@@ -44,8 +53,27 @@ export const MAX_SWELL = 0.6; // how much bigger at the peak: 1.6× its own size
 // misses are hits with nothing to choose from rather than hits that were
 // unlucky, and more tries cannot help those.
 const TRIES = 16;
-const INSET = 0.06; // keep the choice this far inside the frame, so a swelling
-// cat grows into the picture rather than half off the edge of it
+// Keep the choice this far inside the frame. It was 0.06 — a swollen cat's own
+// half-height, which is the bare minimum not to be clipped — and at that width
+// the test was passing cats that scrape an edge as readily as cats in the middle
+// of the picture. What that cost is not obvious until it is counted: the
+// under-river runs from 0.03 to 0.81 below the frame's centre, so most of it is
+// under the floor and the only part that qualified was the strip along the
+// bottom edge. Half the score was being spent down there — river 88 of 255 beats
+// against the under-river's 127, with 62 of the chosen cats inside 0.10 of an
+// edge. Widening it takes that strip out of the running and those hits fall
+// through to the river: at 0.10 it goes 88 → 106 at 16:9 and 82 → 113 at 4:3,
+// with nothing chosen within 0.10 of an edge at either.
+//
+// What stops it here is the narrow window rather than the wide one, and it is a
+// cliff and not a slope. The beats this costs are ones where nothing anywhere is
+// far enough in, so they pass without a swell, and at 4:3 they arrive all at
+// once: 9.8% of the score at 0.10 and 11.0% at 0.11, against pulse-check's 10%.
+// Between those two the loss stops being the odd beat under the closing fade and
+// becomes a hole from 60s to 63s with the burst still at full brightness. 0.12
+// buys a further 106 → 134 at 16:9 and would be the better picture on a wide
+// screen; it is not worth a three-second hole on a square one.
+const INSET = 0.1;
 
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
@@ -79,9 +107,16 @@ function seek(xs, n, rising, target) {
   return lo;
 }
 
-/** Is sample `i` of `course` inside a frame centred on (camX, camY)? */
-function inFrame(course, i, camX, camY, halfW) {
-  return Math.abs(course.xs[i] - camX) <= halfW - INSET && Math.abs(course.ys[i] - camY) <= 0.5 - INSET;
+/**
+ * How far inside the frame sample `i` of `course` sits — the distance to
+ * whichever edge is nearest, in frame-heights, and negative if it is outside.
+ *
+ * A number rather than the yes/no this used to be, because the choosing wants to
+ * tell two cats that both fit apart. One at 0.30 is in the middle of the picture
+ * and one at 0.001 is a cat with the edge of the screen through its whiskers.
+ */
+function margin(course, i, camX, camY, halfW) {
+  return Math.min(halfW - INSET - Math.abs(course.xs[i] - camX), 0.5 - INSET - Math.abs(course.ys[i] - camY));
 }
 
 /**
@@ -112,13 +147,32 @@ function somewhereVisible(course, camX, camY, halfW, seed, swim, pan, fade) {
   const hi = Math.min(Math.max(a, b), Math.floor((course.length - fade) / step) - ahead);
   if (hi <= lo) return null;
 
+  // The best of the tries rather than the first that fits. Both are one pass and
+  // the same TRIES hashes; the difference is only which of them is kept, and it
+  // is the whole of how far from an edge the swelling cats end up — taking the
+  // first acceptable one left 62 of 248 chosen cats inside 0.10 of an edge and a
+  // median clearance of 0.144, and keeping the roomiest leaves none and 0.320.
+  // Half of that is INSET's doing and half is this. It plateaus almost at once:
+  // best-of-8 already reaches the clearance best-of-64 does, so TRIES above is
+  // still set by the hit rate rather than by this.
+  let best = null;
+  let clearest = -1;
   for (let t = 0; t < TRIES; t++) {
     const i = lo + Math.floor(rand(seed + t * 7919) * (hi - lo));
-    if (!inFrame(course, i, camX, camY, halfW)) continue;
-    if (!inFrame(course, Math.min(n, i + ahead), camX + pan * PULSE, camY, halfW)) continue;
-    return (i / n) * course.length;
+    const here = margin(course, i, camX, camY, halfW);
+    if (here < 0) continue;
+    // And still in shot at the end of the pulse, which is the other half of it.
+    const later = margin(course, Math.min(n, i + ahead), camX + pan * PULSE, camY, halfW);
+    if (later < 0) continue;
+    // The tighter of the two ends: a cat that starts in the middle and finishes
+    // against the edge is not a roomy choice, whatever its first frame says.
+    const clear = Math.min(here, later);
+    if (clear > clearest) {
+      clearest = clear;
+      best = i;
+    }
   }
-  return null;
+  return best === null ? null : (best / n) * course.length;
 }
 
 /**
