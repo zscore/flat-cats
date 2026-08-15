@@ -21,6 +21,7 @@
 import { tailBurst, BURST_LENGTH as TAIL_LENGTH } from './tail.js';
 import { faceBurst, BURST_LENGTH as FACE_LENGTH } from './face.js';
 import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
+import { riverBurst, BURST_LENGTH as RIVER_LENGTH } from './river.js';
 
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
 const EDGE = 0.08; // keeps a cat's centre off the left and right edges
@@ -28,12 +29,15 @@ const ATTACK = 0.06; // seconds to fade in
 const FADE = 0.45; // seconds a cat lingers past the end of its note
 const MAX_LIFE = 2.5; // the longest note here is 10.7s; nobody wants that on screen
 
-// Where the two hand-placed bursts go, in seconds. Same convention as viz.js:
-// they are the one thing on screen no note asked for, so they say so out loud.
-// The tail burst runs 26s from 20s, so the face burst waits until it is clear.
-// The spiral is the exception — it picks its own moment off the score, below.
+// Where the hand-placed bursts go, in seconds. Same convention as viz.js: they
+// are the one thing on screen no note asked for, so they say so out loud. The
+// tail burst runs 30s from 20s and the face burst 14.6s from 50s, so the river
+// waits until both are clear and takes 72s to 110s — which leaves the back of
+// the piece for the spiral. The spiral is the exception: it picks its own
+// moment off the score, below, and is told about the other three.
 const BURSTS = [20];
 const FACE_BURSTS = [50];
+const RIVER_BURSTS = [72];
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
@@ -128,6 +132,7 @@ function planSpiral(notes) {
   const busy = [
     ...BURSTS.map((t) => [t, t + TAIL_LENGTH]),
     ...FACE_BURSTS.map((t) => [t, t + FACE_LENGTH]),
+    ...RIVER_BURSTS.map((t) => [t, t + RIVER_LENGTH]),
   ];
   const clear = (a, b) => busy.every(([c, d]) => b <= c || a >= d);
 
@@ -215,6 +220,7 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
 
   for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat, tails);
   for (const at of FACE_BURSTS) faceBurst(ctx, W, H, t - at, faces, faceImages);
+  for (const at of RIVER_BURSTS) riverBurst(ctx, W, H, t - at, cats);
   spiralBurst(ctx, W, H, t - spiral.at, spiral.beats, cats);
   return shown;
 }
