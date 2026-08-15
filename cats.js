@@ -22,8 +22,8 @@ import { tailBurst, BURST_LENGTH as TAIL_LENGTH } from './tail.js';
 import { faceBurst, BURST_LENGTH as FACE_LENGTH } from './face.js';
 import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
 import { riverBurst, BURST_LENGTH as RIVER_LENGTH } from './river.js';
-import { checkerBurst, BURST_LENGTH as CHECKER_LENGTH } from './checkers.js';
-import { twinkleBurst, BURST_LENGTH as TWINKLE_LENGTH } from './twinkle.js';
+import { checkerBurst, BURST_LENGTH as CHECKER_LENGTH, FADE_FOR as CHECKER_FADE } from './checkers.js';
+import { twinkleBurst } from './twinkle.js';
 import { moonBurst } from './moon.js';
 
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
@@ -99,7 +99,7 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
 
   const sprites = arrange(notes, cats);
   const spiral = planSpiral(notes);
-  const twinkle = planTwinkle(notes);
+  const twinkle = planTwinkle(notes, spiral.at);
   const ctx = canvas.getContext('2d');
 
   function resize() {
@@ -208,10 +208,24 @@ function scoreEnd(notes) {
   return notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
 }
 
-function planTwinkle(notes) {
-  const end = scoreEnd(notes);
-  const at = end - TWINKLE_LENGTH;
-  return { at, beats: beatOnsets(notes).filter((s) => s >= at).map((s) => s - at) };
+/**
+ * When the stars run, and the beats that light them. They come up as the
+ * lozenge ground begins to go and hold until the music stops, so both ends are
+ * read off something rather than typed: the start off the grid's own fade, the
+ * finish off the last note.
+ *
+ * The lead is the awkward part and is worth stating. Starting exactly on the
+ * grid's fade would give the stars no beats at all — the score's last beat is
+ * at 165.8s and the fade begins after it — so they open this far ahead of it,
+ * which is the least that still leaves something for the MIDI to trigger.
+ */
+const STAR_LEAD = 2.0;
+
+function planTwinkle(notes, spiralAt) {
+  const fades = spiralAt + SPIRAL_LENGTH / 2 + CHECKER_LENGTH - CHECKER_FADE;
+  const at = fades - STAR_LEAD;
+  const span = scoreEnd(notes) - at;
+  return { at, span, beats: beatOnsets(notes).filter((s) => s >= at).map((s) => s - at) };
 }
 
 /** One placement per note, computed once — nothing is random at draw time. */
@@ -302,6 +316,6 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   for (const at of RIVER_BURSTS) riverBurst(ctx, W, H, t - at, cats);
   spiralBurst(ctx, W, H, t - spiral.at, spiral.beats, cats);
   // Last, and over everything: the stars are the top of the picture.
-  twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.beats, cats);
+  twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.span, twinkle.beats, cats);
   return shown;
 }

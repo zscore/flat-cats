@@ -21,13 +21,11 @@
  * rand(), nothing carried between frames. Keep it that way.
  */
 
-export const BURST_LENGTH = 8.0; // seconds, and the last eight of the piece
-
-const PER_BEAT = 3; // stars per beat; one is a sparse sky, five is a snowstorm
-// A star lasts the whole window. The closing bars only have beats up to about
-// six seconds in, so anything shorter empties the frame before the music
-// stops — they accumulate into a sky and the sky goes out all at once.
-const LIFE = BURST_LENGTH;
+// Stars per beat. The window is short and the closing bars are sparse, so this
+// carries more of the sky than it looks like it should: it is what turns four
+// remaining beats into something worth calling a sky.
+const PER_BEAT = 12;
+const FADE_FOR = 1.0; // seconds the whole sky takes to go out at the end
 const ATTACK = 0.09; // seconds to arrive, in seconds and not in lifetimes
 const FLARE = 0.5; // how much bigger a star is at the instant it lands …
 const FLARE_FOR = 0.3; // … and how long it takes to fall back
@@ -46,22 +44,27 @@ function rand(seed) {
 }
 
 /** How present the sky is, 0…1 — its own fade, in and then out with the song. */
-function sky(since) {
-  if (since < 0 || since > BURST_LENGTH) return 0;
-  return ramp(since, 0, 1.2) * (1 - ramp(since, BURST_LENGTH - 1.0, BURST_LENGTH));
+function sky(since, span) {
+  if (since < 0 || since > span) return 0;
+  return ramp(since, 0, 0.9) * (1 - ramp(since, span - FADE_FOR, span));
 }
 
 /**
- * Draw the stars. `since` is seconds since the window opened; `beats` is the
- * beat times inside it, in seconds from that point, ascending. Returns whether
- * anything was drawn.
+ * Draw the stars. `since` is seconds since the window opened and `span` is how
+ * long that window is — cats.js works both out, one off the moment the lozenge
+ * ground starts to fade and the other off the last note, so neither is a number
+ * typed here. `beats` is the beat times inside it, in seconds from the start,
+ * ascending. Returns whether anything was drawn.
  *
- *   twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.beats, cats)
+ *   twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.span, twinkle.beats, cats)
  */
-export function twinkleBurst(ctx, W, H, since, beats, cats) {
+export function twinkleBurst(ctx, W, H, since, span, beats, cats) {
   if (!beats.length || !cats.length) return false;
-  const layer = sky(since);
+  const layer = sky(since, span);
   if (layer <= 0.004) return false;
+  // A star lasts whatever is left of the piece: they accumulate into a sky and
+  // the sky goes out all at once, rather than each blinking out on its own.
+  const LIFE = span;
 
   ctx.save();
   // Additive: a star lightens the black rather than sitting on top of it.

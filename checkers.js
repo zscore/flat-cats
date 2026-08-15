@@ -131,10 +131,15 @@ function sweep(ctx, W, H, s, cats, { dur, dir, cell, radial, gain = 1, hold = HO
   }
 }
 
+// How long the ground takes to go at the end. Exported because cats.js starts
+// the stars off it — "once the grid begins to fade" is a time in the piece, and
+// this is the only place that knows when it is.
+export const FADE_FOR = 1.2;
+
 /** How present the ground is, 0…1 — its own fade, in and then out. */
 function ground(since) {
   if (since < 0 || since > BURST_LENGTH) return 0;
-  return ramp(since, 0, 0.8) * (1 - ramp(since, BURST_LENGTH - 1.2, BURST_LENGTH));
+  return ramp(since, 0, 0.8) * (1 - ramp(since, BURST_LENGTH - FADE_FOR, BURST_LENGTH));
 }
 
 /**
