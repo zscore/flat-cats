@@ -30,6 +30,12 @@ const FAN = 9; // the fox's nine
 const OCTAVES = 2; // how many times the waves subdivide
 const FORK = 0.44; // radians a fork leaves its parent by
 const SWAY_HZ = 0.34; // full swings per second
+const ROCK = 0.045; // radians the host cat leans, either side of upright
+// Leans per second. Deliberately not a simple fraction of SWAY_HZ: on a round
+// ratio the cat reaches its lean on the same beat the fan reaches its swing,
+// every time, and the two read as one mechanism rather than as an animal
+// sitting under something moving.
+const ROCK_HZ = 0.09;
 const BREATH_HZ = 0.14; // fades per second, shared by every tail
 const BREATH_DEPTH = 0.45; // how far down the fade takes them
 // Radians of sway each tail owes its neighbour. Zero means the fan swings as
@@ -80,6 +86,10 @@ function score(s) {
     // The forks fork, but only at the peak — it is four times the drawing.
     depth: fork > 0.8 ? 2 : 1,
     cull: ramp(s, 21.0, 23.5),
+    // The host shifting its weight. Starts at zero and stays small: a cat that
+    // sits stone still under all this looks like a photograph the tails were
+    // pasted onto, which is what it is.
+    rock: ROCK * Math.sin(TAU * ROCK_HZ * s),
     // Length. The fan opens at a length that is already a tail and then the
     // tails grow past it, which is a stage of its own — nothing else changes
     // while they do it. Opening much shorter than this leaves the first few
@@ -329,6 +339,13 @@ export function tailBurst(ctx, W, H, since, cat, tails) {
 
   // The cat goes on last, over the join every tail comes out of.
   ctx.globalAlpha = p.alpha;
+  // It leans about that join, and about nothing else. The join is the one point
+  // the fan is pinned to, so pivoting there moves the whole cat while leaving
+  // every tail's root exactly where it was — the alternative is a hip that
+  // slides out from under nine tails that stay put.
+  ctx.translate(place.ax, place.ay);
+  ctx.rotate(p.rock);
+  ctx.translate(-place.ax, -place.ay);
   if (place.flip) {
     ctx.translate(place.x + place.w / 2, 0);
     ctx.scale(-1, 1);
