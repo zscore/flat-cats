@@ -202,12 +202,35 @@ console.log(`${total} match the search, took ${results.length}; ` +
   `${kept.length} passed the CC0 re-check, ${dropped.length} dropped`);
 for (const d of dropped) console.log(`  DROP  ${String(d.license).slice(0, 46).padEnd(48)}${d.name.slice(0, 40)}`);
 
-const recs = await retrieve(kept);
-writeFileSync(join(OUT, 'credits.json'), JSON.stringify(recs, null, 2) + '\n');
+/**
+ * Fold this run's records into whatever is already on disk.
+ *
+ * retrieve() leaves existing wavs alone, so a second run with different search
+ * terms downloads only what is new — but it used to write credits.json from that
+ * run alone, which silently orphaned every file the first run had fetched. The
+ * pool is cumulative; its credits have to be too. Keyed by id, this run wins
+ * ties, and anything whose wav has since been deleted by hand drops out.
+ */
+function merge(recs) {
+  const byId = new Map();
+  const path = join(OUT, 'credits.json');
+  if (existsSync(path)) {
+    for (const r of JSON.parse(readFileSync(path, 'utf8'))) {
+      if (existsSync(join(OUT, r.file))) byId.set(r.id, r);
+    }
+  }
+  const before = byId.size;
+  for (const r of recs) byId.set(r.id, r);
+  return { all: [...byId.values()].sort((a, b) => a.id - b.id), before };
+}
 
-const rates = [...new Set(recs.map((r) => r.samplerate))].sort((a, b) => a - b);
-const secs = recs.reduce((a, r) => a + r.seconds, 0);
-console.log(`\nwrote ${recs.length} files (${rates.join('/')} Hz, ${secs.toFixed(0)}s total) ` +
-  `+ credits.json -> ${OUT}`);
+const recs = await retrieve(kept);
+const { all, before } = merge(recs);
+writeFileSync(join(OUT, 'credits.json'), JSON.stringify(all, null, 2) + '\n');
+
+const rates = [...new Set(all.map((r) => r.samplerate))].sort((a, b) => a - b);
+const secs = all.reduce((a, r) => a + r.seconds, 0);
+console.log(`\n${recs.length} from this run; pool ${before} -> ${all.length} ` +
+  `(${rates.join('/')} Hz, ${secs.toFixed(0)}s total) + credits.json -> ${OUT}`);
 console.log(`${readdirSync(OUT).filter((f) => f.endsWith('.wav')).length} wav in the pool; ` +
   `next: node tools/pick.mjs --src=${OUT}`);
