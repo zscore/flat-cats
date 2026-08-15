@@ -28,6 +28,8 @@
  * later and you get the identical frame. Keep it that way.
  */
 
+import { ORIENT, TURN, upright } from './frame.js';
+
 export const BURST_LENGTH = 30; // seconds, start to nothing on screen
 
 const FAN = 9; // the fox's nine
@@ -52,6 +54,22 @@ const LAG = 0;
 // ends meet exactly without it; this is only so the seam is under fur.
 const OVERLAP = 0.16;
 const TAU = Math.PI * 2;
+
+// Where the cat sits, per view — a nudge along the *canvas*, in fractions of the
+// cat's own height, x across the picture and y down it.
+//
+// Two views, two answers, and no formula that gives both. Wide, the cat sits
+// beside its fan where it always has and zero means layout()'s original
+// placement, untouched. Turned, it stands over the fan and zero means its
+// trailing edge on the fan's centreline, which is what slide() works out. Both
+// are meant to be moved by hand from there: change a number, render, look.
+//
+//   node tools/shoot.mjs 25.56          # wide
+//   node tools/shoot.mjs 25.56 portrait # tall
+const NUDGE = {
+  landscape: { x: 0, y: 0 },
+  portrait: { x: 0, y: 0 },
+};
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -271,6 +289,70 @@ function layout(W, H, cat) {
 }
 
 /**
+ * How far the standing cat slides along the picture, and zero in the wide view.
+ *
+ * Standing the cat up left the join — the point every tail leaves from — sitting
+ * out in the middle of its body, so the fan came out of the cat's flank. This
+ * slides the body along until its trailing edge is on the fan's own centreline,
+ * which puts the join at the corner of the cat and the tails under the end of
+ * it. Nothing vertical moves: after upright() the local frame is square with the
+ * canvas, so this is a move along the canvas's horizontal and only that.
+ *
+ * The edge is the cat's, not the picture's. `cat.box` is the opaque part of the
+ * cutout, and on the burst cat a quarter of the width down the right-hand side
+ * is empty — line the *image* up with the fan instead and the cat lands a
+ * quarter of itself too far over, which is a large and completely invisible
+ * error, because the thing you are aligning to has nothing drawn in it.
+ */
+/** The hand-set nudge for this view, in canvas pixels. */
+function nudge(place) {
+  const n = NUDGE[ORIENT];
+  return { x: n.x * place.h, y: n.y * place.h };
+}
+
+function slide(place, cat) {
+  if (!TURN) return 0;
+  // Mirrored, the far edge of the cutout is the near edge of the cat.
+  const far = place.flip ? 1 - cat.box.x0 : cat.box.x1;
+  return place.ax - (place.x + far * place.w);
+}
+
+/**
+ * The box the cat's body actually occupies.
+ *
+ * In the tall view the cat stands up about its own join — it is the one thing in
+ * the burst that does, and the reason is that a fan is a gesture and a cat is an
+ * animal: the tails read fine lying over, and the animal underneath them does
+ * not. Turning it about the join rather than about its middle is what keeps the
+ * fan attached, because the join is the single point every tail leaves from.
+ *
+ * A quarter turn about a corner-of-nothing sends an upright box to another
+ * upright box, so this stays a plain rect — width and height swap and the corner
+ * moves. keepClear() and the drawing both come through here so they cannot drift
+ * apart: clear the scattered cats out of a rectangle the cat is no longer in and
+ * the burst opens a hole beside itself and sits somewhere else.
+ */
+function bodyBox(place, cat) {
+  const n = nudge(place);
+  // Wide, the canvas and the composition are the same thing.
+  if (!TURN) return { x: place.x + n.x, y: place.y + n.y, w: place.w, h: place.h };
+  // Turned, a move across the canvas is a move along the composition, and a move
+  // down the canvas is a move back across it — so the two swap and one flips.
+  return {
+    // Across the picture: untouched by the slide, which is the whole point of
+    // doing it along the canvas rather than along the composition.
+    x: place.ax + (place.y - place.ay) + n.y,
+    // Along it: where the quarter turn put the picture's trailing edge, less
+    // the slide. This stays the whole image box and not the cat inside it —
+    // clearance wants the generous answer, and only the alignment above wants
+    // the exact one.
+    y: place.ay - (place.x + place.w - place.ax) - slide(place, cat) - n.x,
+    w: place.h,
+    h: place.w,
+  };
+}
+
+/**
  * The frame this burst occupies, as shapes something else can be kept out of.
  *
  * It is the union over the whole burst, not the footprint at any one moment.
@@ -304,7 +386,9 @@ export function keepClear(W, H, cat) {
     // The cat, as its whole image box. Generous — the picture is mostly
     // transparent at the corners — but the alternative is a matte test per
     // frame for a rectangle that never moves.
-    { kind: 'rect', x: place.x, y: place.y, w: place.w, h: place.h, pad: ROCK * place.h },
+    // Padded off its own height rather than off place.h: standing the cat up
+    // swaps the two, and the lean sweeps the box's long way whichever that is.
+    { kind: 'rect', ...bodyBox(place, cat), pad: ROCK * bodyBox(place, cat).h },
     {
       kind: 'wedge',
       x: place.ax,
@@ -370,7 +454,16 @@ export function tailBurst(ctx, W, H, since, cat, tails) {
   // every tail's root exactly where it was — the alternative is a hip that
   // slides out from under nine tails that stay put.
   ctx.translate(place.ax, place.ay);
+  // Stand it up, about that same join. The fan keeps the angle the frame gave
+  // it — turned, so it hangs straight down the tall picture — and the cat comes
+  // back to level underneath it, facing whichever way `flip` had it facing.
+  // Nothing here moves the join, so every tail's root is where it was.
+  upright(ctx);
   ctx.rotate(p.rock);
+  // After the lean, not before it: the cat is pinned at the join and the join is
+  // now its trailing corner, so the lean is a hip and the body swings off it.
+  // Sliding first would pivot the cat about a point out in front of its chest.
+  ctx.translate(slide(place, cat) + nudge(place).x, nudge(place).y);
   ctx.translate(-place.ax, -place.ay);
   if (place.flip) {
     ctx.translate(place.x + place.w / 2, 0);
