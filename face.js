@@ -31,6 +31,8 @@
  * way.
  */
 
+import { upright } from './frame.js';
+
 const CASTS = 5; // chimeras rotated through
 const HOLD = 2.7; // seconds each one is up
 const CROSS = 0.6; // seconds of crossfade between them
@@ -226,6 +228,7 @@ function edgeFrame(ctx, W, H, cats, s, alpha) {
     ctx.save();
     ctx.globalAlpha = a;
     ctx.translate(slot.x, slot.y);
+    upright(ctx);
     if (slot.x > W / 2) ctx.scale(-1, 1); // the two sides face each other
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
     ctx.restore();
@@ -247,10 +250,21 @@ export function faceBurst(ctx, W, H, since, faces, imgs, cats = []) {
   // The frame goes down first: where it does meet the head, the face is the
   // subject and wins.
   if (cats.length) edgeFrame(ctx, W, H, cats, since, p.alpha);
+  // The face turns as one thing, about the point it is already centred on — its
+  // eyes and ears are placed in the head's own box and a part standing up on its
+  // own would leave the socket it was measured into. Sizing is left alone: the
+  // head is still HEAD_H of the composition's height, which in the tall view is
+  // the narrow way across, so it fills the width and keeps sky above and below.
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  upright(ctx);
+  ctx.translate(-W / 2, -H / 2);
   for (const [k, w] of weights(since)) {
     ctx.globalAlpha = p.alpha * w;
     chimera(ctx, W, H, cast(faces, k), imgs, since, p);
   }
+  ctx.restore();
+
   ctx.restore();
   return true;
 }

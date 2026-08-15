@@ -31,6 +31,7 @@ import { checkerBurst } from './checkers.js';
 import { twinkleBurst } from './twinkle.js';
 import { moonBurst, keepClear as moonClear } from './moon.js';
 import { reflow, settle, blocker } from './clear.js';
+import { fit, turn, upright } from './frame.js';
 import {
   BURSTS,
   FACE_BURSTS,
@@ -66,6 +67,37 @@ const WALK_BOX = { x0: EDGE, x1: 1 - EDGE, y0: MARGIN + WALK_SPREAD / 2, y1: 1 -
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+
+/**
+ * The part of an image that is actually opaque, as fractions of its own box.
+ *
+ * A cutout PNG is mostly margin — the burst cat's is a quarter transparent down
+ * its right-hand side — so its image box is not its edge, and anything lining
+ * that cat up against something else has to know the difference. Measured once
+ * at load rather than stored in the manifest, so it cannot go stale if the
+ * cutouts are regenerated.
+ */
+function opaqueBox(img) {
+  const c = document.createElement('canvas');
+  [c.width, c.height] = [img.width, img.height];
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const a = g.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width;
+  let y0 = c.height;
+  let x1 = 0;
+  let y1 = 0;
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      if (a[(y * c.width + x) * 4 + 3] <= 8) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  return { x0: x0 / c.width, y0: y0 / c.height, x1: (x1 + 1) / c.width, y1: (y1 + 1) / c.height };
+}
 
 /** Deterministic hash → [0,1). The scatter has to survive a reload. */
 function rand(seed) {
@@ -112,7 +144,10 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
   // the only tail it has. Same canvas as the cutout, so root still points at
   // the place the tail used to leave from.
   const [burstBody] = await load(base, [burstTail.body]);
-  const burstCat = { img: burstBody, root: burstTail.root, heading: burstTail.heading };
+  // `box` is where the cat actually is inside that picture. tail.js lines its
+  // trailing edge up with the fan in the tall view, and the image box would put
+  // it a quarter of a cat's width out.
+  const burstCat = { img: burstBody, root: burstTail.root, heading: burstTail.heading, box: opaqueBox(burstBody) };
 
   const sprites = arrange(notes, cats);
   const spiral = planSpiral(notes);
@@ -129,15 +164,18 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
   const hold = [walkStart(notes), WALK_UNTIL];
   function resize() {
     const dpr = Math.min(devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(innerWidth * dpr);
-    canvas.height = Math.floor(innerHeight * dpr);
-    ({ flow, crowd } = place(sprites, canvas.width, canvas.height, burstCat, hold));
+    // frame.js hands back the composition's dimensions rather than the canvas's.
+    // Turned, those are the canvas's swapped — so the placement below is solving
+    // the same wide frame in either view, and a cat does not stand anywhere
+    // different for having been rotated.
+    const { W, H } = fit(canvas, innerWidth, innerHeight, dpr);
+    ({ flow, crowd } = place(sprites, W, H, burstCat, hold));
   }
   addEventListener('resize', resize);
   resize();
 
   return {
-    draw: (t) => draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle, riverBeats, moonBeats }),
+    draw: (t) => paint(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle, riverBeats, moonBeats }),
     cast: cats.length,
     spiral,
     twinkle,
@@ -277,10 +315,23 @@ function firstAfter(sprites, t) {
   return lo;
 }
 
+/**
+ * The one place the canvas and the composition are told apart. Everything below
+ * this line works in the wide frame and has no idea which way up it is being
+ * looked at; everything above it works in pixels.
+ */
+function paint(ctx, canvas, sprites, t, opts) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  const { W, H } = turn(ctx, canvas);
+  const shown = draw(ctx, W, H, sprites, t, opts);
+  ctx.restore();
+  return shown;
+}
+
 /** Pure in (sprites, t): scrub back an hour later and the frame is identical. */
-function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle, riverBeats, moonBeats }) {
-  const { width: W, height: H } = canvas;
-  ctx.clearRect(0, 0, W, H);
+function draw(ctx, W, H, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle, riverBeats, moonBeats }) {
 
   // The moon goes down before anything else, so the fan it is drawn around
   // lands in front of it rather than behind.
@@ -316,6 +367,7 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
     ctx.save();
     ctx.globalAlpha = clamp01(fade) * voices;
     ctx.translate(s.x * W, s.y * H);
+    upright(ctx); // these ones have no angle of their own, so they stand up
     if (s.flip) ctx.scale(-1, 1);
     ctx.drawImage(s.img, -w / 2, -h / 2, w, h);
     ctx.restore();

@@ -36,6 +36,8 @@
 // three directional sweeps run under the spiral's back half. The radial one
 // then runs on past the spiral's end, which is why this is not 17.5: the
 // lozenges are what the sequence finishes on, alone.
+import { upright } from './frame.js';
+
 export const BURST_LENGTH = 22.6;
 
 // Each sweep gets its own grain as well as its own heading, so the four read as
@@ -81,7 +83,12 @@ function lozenge(ctx, x, y, half, img) {
   const scale = Math.max(box / img.width, box / img.height);
   const w = img.width * scale;
   const h = img.height * scale;
-  ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+  // A diamond is its own shape at any quarter turn, and the box is square, so
+  // standing the cat up inside its cell changes the cat and leaves both the
+  // lattice and the cover-scale above exactly as they were.
+  ctx.translate(x, y);
+  upright(ctx);
+  ctx.drawImage(img, -w / 2, -h / 2, w, h);
   ctx.restore();
 }
 
