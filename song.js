@@ -112,6 +112,12 @@ function pause() {
 
 // --------------------------------------------------------------------- hud --
 
+// A moment to open on, paused: ?t=35 is the middle of the tail burst. draw() is
+// a pure function of time, so this is the whole of what it takes to look at one
+// frame — no scrubbing, no waiting for the transport to get there, and the same
+// door a renderer goes through.
+seek(Number(new URLSearchParams(location.search).get('t')) || 0);
+
 function frame() {
   const t = now();
   if (playing && t >= END) pause();
