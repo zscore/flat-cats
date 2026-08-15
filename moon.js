@@ -37,8 +37,10 @@
  * cats stop scattering at exactly the moment it rises (plan.js, VOICES_UNTIL),
  * and from then until it goes every beat picks one cat in one ring and swells
  * it — pulse.js's envelope, the same one the river swells its cats with, so the
- * two read as the same gesture in different places. A beat that can only find a
- * cat off the edge of the frame passes without swelling anything.
+ * two read as the same gesture in different places. The cat it picks has to be
+ * on screen and in a ring that is still brightly drawn — a ring fades as it
+ * crosses, so most of one's life is spent too faint to show a swell — and a
+ * beat that can find neither passes without swelling anything.
  *
  * Like the bursts it is a pure function of time — no counters, no rand() at
  * draw time, nothing carried between frames. Scrub back into it an hour later
@@ -86,10 +88,20 @@ const RING_REACH = 2.0; // how far it gets, as a multiple of R
 // further apart, which is what expanding actually looks like.
 const RING_CATS = 22;
 const RING_CAT = 0.09; // one of them, as a fraction of R
-const TRIES = 8; // hashed candidates per hit before the hit is given up
+// Hashed candidates per hit before the hit is given up. Swept the same way
+// pulse.js's is, and to the same place: 8 leaves four beats of the score with
+// nothing, 16 leaves one, and past that nothing improves.
+const TRIES = 16;
 // Keep the choice this far inside the frame, so a cat that has been picked
 // swells into the picture rather than half off the edge of it.
 const INSET = 0.04;
+// And this brightly drawn. A ring spends most of its crossing nearly
+// transparent, so being on screen is not the same as being visible: measured
+// against the score, on-screen-only put 46% of the notes on a cat at under a
+// fifth opacity and 27% at under a tenth, which is a swell nobody can see. This
+// confines the score to the near half of each ring's life, where there is
+// something to look at.
+const MIN_LIT = 0.35;
 
 const TAU = Math.PI * 2;
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -203,15 +215,30 @@ function bead(n, i, age, r) {
 }
 
 /**
+ * How brightly a ring is drawn at `age`: up quickly as it leaves the moon, then
+ * away for the rest of the crossing, so it arrives at its reach as nothing
+ * rather than as a hoop that switches off.
+ *
+ * Beside `bead` for the same reason `bead` is here — the drawing and the
+ * choosing both need it, and a hit that lands on a ring the drawing has all but
+ * faded out is the one failure the choosing exists to prevent.
+ */
+function glow(age) {
+  return ramp(age, 0, 0.14) * (1 - age) ** 1.7;
+}
+
+/**
  * The ring cat a hit picks, or null if it could not find one worth picking.
  *
  * Chosen against the frame as it was at the moment of the hit, and required to
- * be on screen then: a hit that swells a cat which is already past the edge is
- * a hit that does nothing. Rings run well past the frame at full reach, so most
- * of the outer ones are off it, and without this test most notes would land on
- * something nobody can see. Candidates are hashed and tried in turn, and after
- * TRIES the hit is given up rather than forced somewhere visible — a note that
- * does nothing now and then is cheaper than one that always finds the middle.
+ * be both on screen and lit then: a hit that swells a cat which is already past
+ * the edge, or one the ring's own fade has taken down to a smudge, is a hit
+ * that does nothing. Rings run well past the frame at full reach, so most of
+ * the outer ones are off it, and they are also the faint ones — the two tests
+ * cut the same way and neither is enough alone. Candidates are hashed and tried
+ * in turn, and after TRIES the hit is given up rather than forced somewhere
+ * visible — a note that does nothing now and then is cheaper than one that
+ * always finds the middle.
  */
 function pick(t, r, W, H, seed) {
   const cx = AT[0] * W;
@@ -224,6 +251,7 @@ function pick(t, r, W, H, seed) {
     const n = first + Math.floor(rand(seed * 977 + k * 7919) * (last - first + 1));
     const age = (t - n * RING_EVERY) / RING_LIFE;
     if (age < 0 || age >= 1) continue;
+    if (glow(age) < MIN_LIT) continue;
 
     const i = Math.floor(rand(seed * 131 + k * 31 + 5) * RING_CATS);
     const at = bead(n, i, age, r);
@@ -267,11 +295,7 @@ function rings(ctx, r, s, cats, puffed) {
   for (let n = Math.ceil((s - RING_LIFE) / RING_EVERY); n * RING_EVERY <= s; n++) {
     const age = (s - n * RING_EVERY) / RING_LIFE;
     if (age < 0 || age >= 1) continue;
-    // Out at a steady rate; up quickly as it leaves the moon, then away for the
-    // rest of the crossing, so it arrives at its reach as nothing rather than
-    // as a hoop that switches off.
-    const rad = r * (1 + (RING_REACH - 1) * age);
-    const lit = ramp(age, 0, 0.14) * (1 - age) ** 1.7;
+    const lit = glow(age);
     if (lit < 0.004) continue;
 
     for (let i = 0; i < RING_CATS; i++) {
