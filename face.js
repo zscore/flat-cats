@@ -31,7 +31,7 @@
  * way.
  */
 
-import { upright } from './frame.js';
+import { TURN, upright } from './frame.js';
 
 const CASTS = 5; // chimeras rotated through
 const HOLD = 2.7; // seconds each one is up
@@ -229,7 +229,12 @@ function edgeFrame(ctx, W, H, cats, s, alpha) {
     ctx.globalAlpha = a;
     ctx.translate(slot.x, slot.y);
     upright(ctx);
-    if (slot.x > W / 2) ctx.scale(-1, 1); // the two sides face each other
+    // The two sides face each other — which is a fact about the screen, not
+    // about the composition, so the test has to follow the turn. Across the
+    // canvas is `x` in the wide view and `y`, reversed, in the tall one; asking
+    // the wide question in the tall view splits them top from bottom instead,
+    // which is not a rule about anything.
+    if (TURN ? slot.y < H / 2 : slot.x > W / 2) ctx.scale(-1, 1);
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
     ctx.restore();
   }
