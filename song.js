@@ -120,6 +120,10 @@ function frame() {
     // here rather than in a comment: resize until `dropped` climbs and you have
     // found the aspect the clearance stops working at.
     `${stage.flow().moved} moved / ${stage.flow().dropped} dropped · ` +
+    // The same question asked of the cats against each other. `crowded` is the
+    // one to watch: those are the cats that had nowhere better to stand and are
+    // still overlapping something. It climbs as the window narrows.
+    `${stage.crowd().nudged} nudged / ${stage.crowd().crowded} crowded · ` +
     `spiral @${stage.spiral.at.toFixed(1)}s · ` +
     `${sounding ? `${sounding.hz.toFixed(0)}Hz deg ${sounding.degree}` : '—'} · ` +
     `${MIX.mapping} · ` +
