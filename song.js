@@ -15,6 +15,8 @@
 import { loadVoices, createSynth, planCats, MIX } from './synth.js';
 import { mountControls } from './controls.js';
 import { createStage } from './cats.js';
+import { mountRecorder } from './record.js';
+import { ORIENT } from './frame.js';
 
 const LOOKAHEAD = 0.15; // seconds of notes handed to Web Audio in advance
 const TICK = 25; // ms between scheduler wakeups
@@ -117,6 +119,18 @@ function pause() {
 // frame — no scrubbing, no waiting for the transport to get there, and the same
 // door a renderer goes through.
 seek(Number(new URLSearchParams(location.search).get('t')) || 0);
+
+// The save button. It goes in after the transport exists because it drives it —
+// the recording is the page playing, not a second copy of the piece rendered
+// beside it, so it needs the same seek/play/pause/now everything else uses.
+mountRecorder(document.getElementById('save'), {
+  canvas: document.getElementById('c'),
+  audio: ctx,
+  source: synth.out,
+  transport: { seek, play, pause, now },
+  end: END,
+  name: `flat-cats_${ORIENT}`,
+});
 
 function frame() {
   const t = now();

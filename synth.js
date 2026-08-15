@@ -363,6 +363,11 @@ export function createSynth(ctx, voices, { gain = 0.5 } = {}) {
         : meowVoice(ctx, note, at, level, pan, samples, seed);
     },
     master,
+    // The last node before the speakers. `master` is the level knob and sits
+    // *before* the limiter, so anything tapping the mix has to tap here instead
+    // — a recording taken off master is the one that clips on a dense chord,
+    // which is exactly the thing the limiter was added for.
+    out: limiter,
     samples,
     stop() {
       for (const b of beds) b.stop();

@@ -38,6 +38,54 @@ python sheet.py out/overlay out/20_parts.png --cols 8 --cell 200
 Model weights (~200 MB) download on first run and cache in `~/.u2net` and the
 Hugging Face cache. Full run is roughly 6 minutes on an M1 Pro, CPU only.
 
+## Two views, and getting a file out
+
+`song.html` plays the piece. It has one composition, 16:9, and portrait does not
+lay it out again — it paints that same picture into a 9:16 canvas turned a
+quarter turn clockwise and stands the cats back up one at a time. Every burst
+still receives a wide `W, H`, so the river's camera and the spiral's radius are
+the numbers they always were.
+
+The cats that get stood back up are the ones drawn plumb. The five that set their
+own angle — the tail's fan, the moon's chain and rings, the spiral, the river —
+keep it, because there the angle *is* the gesture. The moon therefore ends up low
+in the tall frame and on its back, with the hollow opening upward and the fan
+growing out of it, which is what the clockwise turn is chosen for.
+
+| URL | What |
+|---|---|
+| `song.html` | the wide view, taking the shape of the window |
+| `song.html?orient=portrait` | the tall view, 1080×1920 whatever the window is |
+| `?size=1920x1080` | pins the wide view too |
+| `?size=fit` | lets either one take the window again |
+| `?t=25.56` | opens paused on that second |
+
+The tall view is pinned because a canvas that takes the size of the window is a
+picture whose proportions are decided by whoever last dragged a corner. The wide
+view is *not* pinned by default, because that is where you resize until `dropped`
+climbs in the hud and find the aspect the burst clearance stops working at.
+
+**save video** in the panel records the whole piece — picture and sound — in real
+time, off the same rAF loop and AudioContext you are watching and hearing. Chrome
+hands back H.264/AAC MP4 at the canvas's own size, so a tall recording is
+1080×1920 wherever it was made. It takes as long as the piece does and the tab has
+to stay in front; backgrounded, rAF throttles and the video goes with it. What
+lands in the file is what the page actually did, dropped frames included — which
+is the point, and the reason this records rather than renders offline.
+
+For one frame rather than the whole thing:
+
+```sh
+node tools/shoot.mjs 25.56                 # -> out/shot_25.56_landscape.png
+node tools/shoot.mjs 25.56 portrait        # 1080×1920
+node tools/shoot.mjs 25.56 portrait 567    # with a line down the frame at x=567
+node tools/frame-check.mjs                 # the turn's arithmetic -> out/frame.html
+```
+
+25.56s is the instant the burst cat's lean is exactly zero, which is the honest
+moment to judge its alignment at — anywhere else the hip pivot has swung the top
+of the cat sideways and it reads as a placement error that is not there.
+
 ## How it works
 
 **Stage 1 — foreground.** `rembg` with the `isnet-general-use` model produces a
