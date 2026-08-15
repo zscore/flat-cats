@@ -14,41 +14,52 @@
  * That last one is the visible difference. viz.js gives every cat the same
  * 1.25s because it has nothing better; here a held note holds its cat.
  *
- * The two bursts are imported from tail.js and face.js unchanged — they are the
- * existing animation, and this module has no opinions about them beyond when
- * they fire.
+ * The per-note cats run for the intro and the tail burst, and stop there. Under
+ * the bursts after it they read as noise rather than as the score — each of
+ * those is a made thing with a shape, and a scatter behind it is just texture.
+ * Under the fan they survive because they get out of its way: see clear.js.
+ *
+ * The bursts themselves are imported unchanged — they are the existing
+ * animation, and this module has no opinions about them beyond when they fire
+ * and, for the two the cats have to share the frame with, where they land.
  */
-import { tailBurst, BURST_LENGTH as TAIL_LENGTH } from './tail.js';
-import { faceBurst, BURST_LENGTH as FACE_LENGTH } from './face.js';
+import { tailBurst, keepClear as tailClear } from './tail.js';
+import { faceBurst } from './face.js';
 import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
-import { riverBurst, BURST_LENGTH as RIVER_LENGTH } from './river.js';
-import { checkerBurst, BURST_LENGTH as CHECKER_LENGTH, FADE_FOR as CHECKER_FADE } from './checkers.js';
+import { riverBurst } from './river.js';
+import { checkerBurst } from './checkers.js';
 import { twinkleBurst } from './twinkle.js';
-import { moonBurst } from './moon.js';
+import { moonBurst, keepClear as moonClear } from './moon.js';
+import { reflow, settle, blocker } from './clear.js';
+import {
+  BURSTS,
+  FACE_BURSTS,
+  RIVER_BURSTS,
+  MOON_AT,
+  VOICES_UNTIL,
+  HANDOVER,
+  WALK_UNTIL,
+  planSpiral,
+  planTwinkle,
+  planRiver,
+  planMoon,
+  planWalk,
+  // aliased: arrange() has a local `walkFrom` of its own from planWalk(), and a
+  // module import quietly shadowed by a local is a bad five minutes later on.
+  walkFrom as walkStart,
+} from './plan.js';
 
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
-const EDGE = 0.08; // keeps a cat's centre off the left and right edges
+export const EDGE = 0.08; // keeps a cat's centre off the left and right edges
 const ATTACK = 0.06; // seconds to fade in
 const FADE = 0.45; // seconds a cat lingers past the end of its note
 const MAX_LIFE = 2.5; // the longest note here is 10.7s; nobody wants that on screen
-
-// Where the hand-placed bursts go, in seconds. Same convention as viz.js: they
-// are the one thing on screen no note asked for, so they say so out loud. The
-// tail burst runs 30s from 20s and the face burst 14.6s from 50s, so the river
-// starts as soon as both are clear and runs 61s from 65s — it does not choose
-// that length, it is however long the course takes to pan at a gentle rate —
-// which leaves the back of the piece for the spiral. The spiral is the
-// exception: it picks its own moment off the score, below, and is told about
-// the other three so it lands somewhere none of them are.
-const BURSTS = [20];
-const FACE_BURSTS = [50];
-const RIVER_BURSTS = [72];
-// The moon is not a burst and does not take a turn. It comes up at the halfway
-// mark and is still there at the end, and the river, the spiral, the lozenges
-// and the stars all happen under it without knowing it is there.
-const MOON_AT = 85;
+const WALK_SPREAD = 0.34; // frame heights the whole pitch range fans over the path
+const WALK_DRIFT = 0.09; // how far off the path a quiet note may land
+const HUDDLE = 0.08; // how far a chord's own notes spread around its centre
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
+const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
 /** Deterministic hash → [0,1). The scatter has to survive a reload. */
 function rand(seed) {
@@ -99,129 +110,96 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
 
   const sprites = arrange(notes, cats);
   const spiral = planSpiral(notes);
+  const riverBeats = planRiver(notes);
+  const moonBeats = planMoon(notes);
   const twinkle = planTwinkle(notes, spiral.at);
   const ctx = canvas.getContext('2d');
 
+  // Which cats have to get out of the burst's way — and out of each other's —
+  // depends on the shape of the frame, so both are settled here and again
+  // whenever that changes: not per frame, and not once at load.
+  //
+  // The order is the burst first and the cats second, because the two are not
+  // the same kind of constraint. The fan is a place a cat may not be; another
+  // cat is only a place it would rather not be. settle() is handed the burst's
+  // shapes as a veto so it cannot undo what reflow() just did.
+  //
+  // The walk is held out of it. Over that stretch the cats are placed along a
+  // path on purpose and being close together is the whole picture — turned
+  // loose on it, settle() moved 135 of 143 cats a quarter of the frame width
+  // and emptied the trail to empty the overlap count.
+  let flow = { moved: 0, dropped: 0 };
+  let crowd = { nudged: 0, crowded: 0 };
+  const hold = [walkStart(notes), WALK_UNTIL];
   function resize() {
     const dpr = Math.min(devicePixelRatio || 1, 2);
     canvas.width = Math.floor(innerWidth * dpr);
     canvas.height = Math.floor(innerHeight * dpr);
+    const { width: W, height: H } = canvas;
+    const plan = {
+      fan: tailClear(W, H, burstCat),
+      moon: moonClear(W, H),
+      moonAt: MOON_AT,
+      from: BURSTS[0],
+      until: VOICES_UNTIL + HANDOVER,
+      edge: EDGE,
+    };
+    flow = reflow(sprites, W, H, plan);
+    crowd = settle(sprites, W, H, { edge: EDGE, until: plan.until, blocked: blocker(W, H, plan), hold });
   }
   addEventListener('resize', resize);
   resize();
 
   return {
-    draw: (t) => draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle }),
+    draw: (t) => draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle, riverBeats, moonBeats }),
     cast: cats.length,
     spiral,
     twinkle,
+    flow: () => flow,
+    crowd: () => crowd,
   };
 }
 
 /**
- * When the spiral fires, and the beats that populate it — both read off the
- * MIDI rather than picked by hand like the other two.
+ * Where each onset sits, before its own notes spread out around it.
  *
- * The beat is the score's own, `tScore`, and not tempo.py's grid: the grid is
- * a guess at a track that has no stable tempo (README, "Beat tracking"), and
- * this one is what was written. A chord counts once — twenty notes sharing an
- * onset is one beat, and would otherwise be twenty cats stacked on one slot.
+ * Its own pass, deliberately, and not part of the scatter below: the scatter
+ * answers "where in the frame does this note go", and it cannot answer "where
+ * does this chord go" because it has never seen the chord. Every note used to
+ * be scattered about the middle independently, so a four-note chord arrived as
+ * four cats fanned across the width rather than as one thing happening.
  *
- * The moment is the window with the most beats in it that the tail and face
- * bursts leave alone. A wheel that populates one cat per beat wants the busiest
- * passage in the piece; anywhere sparse and it spends its first ten seconds
- * nearly empty.
+ * The rule the scatter applies per note is applied per event instead: a loud
+ * event sits near the middle, a quiet one drifts out. Each of its notes then
+ * huddles about *that* centre, so a chord is a cluster and a single note — one
+ * member, no huddle — comes out where the scatter would have put it anyway.
+ *
+ * The walk needs none of this. It already places a chord around wherever the
+ * walker has got to, which is the same idea arrived at from the other end.
  */
-function planSpiral(notes) {
-  const onsets = beatOnsets(notes);
-
-  // Everything that hangs off the spiral has to fit inside the piece as well.
-  // The ground starts halfway through the spiral and outlives it, so the whole
-  // sequence is this long measured from the trigger, and a window that ends
-  // after the music does puts the finale on a silent screen. Without this the
-  // choice is made on beat count alone, and moving an earlier burst can push
-  // the whole ending off the end of the song.
-  const span = SPIRAL_LENGTH / 2 + CHECKER_LENGTH;
-  const end = scoreEnd(notes);
-
-  const busy = [
-    ...BURSTS.map((t) => [t, t + TAIL_LENGTH]),
-    ...FACE_BURSTS.map((t) => [t, t + FACE_LENGTH]),
-    ...RIVER_BURSTS.map((t) => [t, t + RIVER_LENGTH]),
-  ];
-  const clear = (a, b) => busy.every(([c, d]) => b <= c || a >= d);
-
-  // Candidate starts are the onsets themselves, in order, so the end of the
-  // window only ever moves forward — one pass, not a search per candidate.
-  const densest = (mustClear) => {
-    let at = -1;
-    let best = -1;
-    for (let i = 0, edge = 0; i < onsets.length; i++) {
-      while (edge < onsets.length && onsets[edge] < onsets[i] + SPIRAL_LENGTH) edge++;
-      if (onsets[i] + span > end) break; // and every later candidate too
-      if (mustClear && !clear(onsets[i], onsets[i] + SPIRAL_LENGTH)) continue;
-      if (edge - i > best) {
-        best = edge - i;
-        at = onsets[i];
-      }
-    }
-    return at;
-  };
-
-  // Fitting inside the piece is the harder requirement: overlapping another
-  // burst is a judgement, but finishing after the music has stopped is simply
-  // broken. So if the two cannot both be had, the overlap gives way — loudly,
-  // because it means the bursts before this one have grown into its room.
-  let at = densest(true);
-  if (at < 0) {
-    at = densest(false);
-    console.warn(
-      `spiral: no ${SPIRAL_LENGTH}s window leaves the other bursts alone and still ends ` +
-        `by ${end.toFixed(1)}s with its ${span.toFixed(1)}s of ground; overlapping instead, at ${at.toFixed(1)}s`,
-    );
-  }
-  return { at, beats: onsets.filter((s) => s >= at && s < at + SPIRAL_LENGTH).map((s) => s - at) };
-}
-
-/**
- * One time per distinct score beat. A chord is one beat, not twenty — without
- * this a twenty-note chord would be twenty cats stacked on one spiral slot, or
- * twenty stars in the same corner of the sky.
- */
-function beatOnsets(notes) {
-  const first = new Map();
+function chordCentres(notes, loVel, hiVel) {
+  const chords = new Map(); // score beat → the notes struck on it
   for (const n of notes) {
     const beat = Math.round(n.tScore * 1000);
-    if (!(first.get(beat) <= n.t)) first.set(beat, n.t);
+    chords.set(beat, [...(chords.get(beat) ?? []), n]);
   }
-  return [...first.values()].sort((a, b) => a - b);
-}
 
-/** When the last note stops sounding — the end of the piece, not of the file. */
-function scoreEnd(notes) {
-  return notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
-}
-
-/**
- * When the stars run, and the beats that light them. They open on the frame the
- * lozenge ground starts to fade and hold until the music stops, so neither end
- * is a number typed here: the start is the grid's own fade, which checkers.js
- * owns, and the finish is the last note.
- *
- * That the two share a moment is the whole arrangement — the grid going out and
- * the stars coming up are one handover, not two events near each other — and
- * making CHECKER_FADE long enough to be that handover is also what leaves the
- * stars any beats to trigger on. The score's last beat is at 165.8s, so a short
- * fade would put their start after every beat in the piece.
- */
-function planTwinkle(notes, spiralAt) {
-  const at = spiralAt + SPIRAL_LENGTH / 2 + CHECKER_LENGTH - CHECKER_FADE;
-  const span = scoreEnd(notes) - at;
-  return { at, span, beats: beatOnsets(notes).filter((s) => s >= at).map((s) => s - at) };
+  const centres = new Map();
+  let k = 0;
+  for (const [beat, group] of chords) {
+    // The event's velocity is its loudest note's: a chord is as present as the
+    // loudest thing in it, and averaging would push every big chord to the
+    // middle regardless of how it was played.
+    const vel = Math.max(...group.map((n) => n.vel));
+    const loud = clamp01((vel - loVel) / (hiVel - loVel || 1));
+    const spread = 0.13 + 0.37 * (1 - loud);
+    centres.set(beat, clamp01(0.5 + (rand(k++ + 5501) - 0.5) * 2 * spread));
+  }
+  return centres;
 }
 
 /** One placement per note, computed once — nothing is random at draw time. */
-function arrange(notes, cats) {
+export function arrange(notes, cats) {
   const degrees = notes.map((n) => n.degree);
   const loDeg = Math.min(...degrees);
   const hiDeg = Math.max(...degrees);
@@ -229,18 +207,52 @@ function arrange(notes, cats) {
   const loVel = Math.min(...vels);
   const hiVel = Math.max(...vels);
 
+  // The walk's room is the frame less the pitch it fans either side of the
+  // path, so a chord at the top of the range lands inside the margins rather
+  // than clamped flat to them. plan.js decides when it starts; the box is a
+  // placement question and stays here.
+  const { from: walkFrom, walk } = planWalk(notes, {
+    x0: EDGE,
+    x1: 1 - EDGE,
+    y0: MARGIN + WALK_SPREAD / 2,
+    y1: 1 - MARGIN - WALK_SPREAD / 2,
+  });
+
+  const centres = chordCentres(notes, loVel, hiVel);
+
   return notes
     .map((note, i) => {
       // Velocity does the job db and strength do in viz.js: how big, how long,
-      // and how near the middle. A chord's loud note sits centre and its quiet
-      // ones drift out, so the chord still reads as one event.
+      // and how near its chord's centre. The loud note of a chord lands on that
+      // centre and the quiet ones ring it, so the chord reads as one event with
+      // a shape rather than as a row of unrelated cats.
       const loud = clamp01((note.vel - loVel) / (hiVel - loVel || 1));
-      const spread = 0.13 + 0.37 * (1 - loud);
+      const pitch = clamp01((note.degree - loDeg) / (hiDeg - loDeg || 1));
+      const centre = centres.get(Math.round(note.tScore * 1000));
+      let x = EDGE + (1 - 2 * EDGE) * clamp01(centre + (rand(i) - 0.5) * 2 * HUDDLE * (1 - loud));
+      let y = 1 - MARGIN - pitch * (1 - 2 * MARGIN);
+
+      // Inside the walk the path says where the cat is and the note says how
+      // far off it sits: pitch stops being a height in the frame and becomes a
+      // height relative to the walker, so a chord still fans out high to low,
+      // around wherever the cat has got to. Sideways keeps the scatter's rule in
+      // miniature — the chord's loud note on the path, its quiet ones off it.
+      if (note.t >= walkFrom && note.t < WALK_UNTIL) {
+        const p = walk.at(note.t - walkFrom);
+        x = clamp(p.x + (rand(i + 491) - 0.5) * WALK_DRIFT * (1 - loud), EDGE, 1 - EDGE);
+        y = clamp(p.y + (pitch - 0.5) * WALK_SPREAD, MARGIN, 1 - MARGIN);
+      }
+
       return {
         t: note.t,
         life: Math.min(note.d + FADE, MAX_LIFE),
-        x: EDGE + (1 - 2 * EDGE) * clamp01(0.5 + (rand(i) - 0.5) * 2 * spread),
-        y: 1 - MARGIN - ((note.degree - loDeg) / (hiDeg - loDeg || 1)) * (1 - 2 * MARGIN),
+        // `home` is where velocity put it and never changes; `x` is where it
+        // ends up once the burst has had its say, and is the only one drawn
+        // from. Keeping both means a reflow starts from the note again rather
+        // than from wherever the last reflow left it.
+        home: x,
+        x,
+        y,
         size: 0.09 + 0.13 * loud + 0.05 * rand(i + 1013),
         flip: rand(i + 7717) < 0.5,
         img: cats[Math.floor(rand(i + 331) * cats.length)],
@@ -262,13 +274,13 @@ function firstAfter(sprites, t) {
 }
 
 /** Pure in (sprites, t): scrub back an hour later and the frame is identical. */
-function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle }) {
+function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral, twinkle, riverBeats, moonBeats }) {
   const { width: W, height: H } = canvas;
   ctx.clearRect(0, 0, W, H);
 
-  // Sky first, under everything, including the ground — the lozenges are a
-  // lattice with black between them, so the moon reads through the gaps.
-  moonBurst(ctx, W, H, t - MOON_AT, cats);
+  // The moon goes down before anything else, so the fan it is drawn around
+  // lands in front of it rather than behind.
+  moonBurst(ctx, W, H, t - MOON_AT, cats, moonBeats);
 
   // The ground goes down next. It runs off the spiral's clock,
   // starting halfway through it, so the two are one gesture and not two that
@@ -276,11 +288,13 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   const groundAt = t - spiral.at - SPIRAL_LENGTH / 2;
   checkerBurst(ctx, W, H, groundAt, cats);
 
-  // Once the ground starts, the voices are finished for good. They fade rather
-  // than cut, so nothing pops, but they never come back: the lozenges and then
-  // the stars close the piece out and the per-note cats have no part in it.
+  // The scattered per-note cats get the intro and the fan's first half, and no
+  // more than that. They stop where the moon comes up, and the beats they were
+  // spending go into its rings instead — one note, one thing on screen. They
+  // fade rather than cut, so the handover is not a switch.
   // Below the threshold they are not drawn at all, which keeps `shown` honest.
-  const voices = groundAt < 0 ? 1 : 1 - clamp01(groundAt / 0.8);
+  const over = t - VOICES_UNTIL;
+  const voices = over < 0 ? 1 : 1 - clamp01(over / HANDOVER);
 
   let shown = 0;
   // Oldest first, so the newest cat lands on top of the ones it is replacing.
@@ -289,6 +303,7 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
     if (s.t > t) break;
     const age = (t - s.t) / s.life;
     if (age >= 1) continue;
+    if (s.hidden) continue; // its row had no room beside the burst
 
     const fade = age < ATTACK / s.life ? age / (ATTACK / s.life) : (1 - age) ** 1.6;
     const h = s.size * H * (0.92 + 0.08 * (1 - age));
@@ -304,8 +319,8 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   }
 
   for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat, tails);
-  for (const at of FACE_BURSTS) faceBurst(ctx, W, H, t - at, faces, faceImages);
-  for (const at of RIVER_BURSTS) riverBurst(ctx, W, H, t - at, cats);
+  for (const at of FACE_BURSTS) faceBurst(ctx, W, H, t - at, faces, faceImages, cats);
+  for (const at of RIVER_BURSTS) riverBurst(ctx, W, H, t - at, cats, riverBeats);
   spiralBurst(ctx, W, H, t - spiral.at, spiral.beats, cats);
   // Last, and over everything: the stars are the top of the picture.
   twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.span, twinkle.beats, cats);

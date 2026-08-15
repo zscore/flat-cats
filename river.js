@@ -1,170 +1,324 @@
 /**
- * river.js — the river of cats: one curve that changes its mind twice.
+ * river.js — the river of cats: a ribbon three cats wide, a frame that travels
+ * down it, and two counter-currents running back the other way.
  *
- * Thirty-eight seconds of a single line of cats flowing left to right, driven
- * entirely by `since`, the seconds elapsed since the burst was triggered:
+ * The river is one fixed curve, laid out once, in three stretches:
  *
- *   wave     a gentle sine, two and a half crests across the frame
- *   square   the wave stiffens into right angles — runs and risers, ten of them
+ *   wave     a gentle sine, a couple of crests wide
+ *   square   nine right-angle turns — the river goes left, then straight up and
+ *            off the top of the frame, then comes back down and carries on
  *   snake    the corners relax into a meander that never crosses itself
  *
- * The thing worth explaining is that these are not three shapes. They are one
- * shape with a different *heading*.
+ * Running the other way, right to left, single file, are two more courses:
  *
- * The river is defined by θ(u): the direction it points at each fraction u of
- * the way along itself. Points come from integrating that — step du in the
- * direction θ, over and over. Because every step is the same length, u is arc
- * length, which is what makes the cats easy: evenly spaced in u is evenly
- * spaced along the river, whatever shape it is currently in, and the river's
- * whole on-screen length is one number.
+ *   under    the early one, and the first thing on screen — it reaches further
+ *            left than the river's own source. Tight and nearly straight in the
+ *            shallow water under the right angles, opening into long swings
+ *            under the wave where there is room to
+ *   counter  the late one, set into the bends of the meander without touching
  *
- * In the heading domain all three regimes are the same expression:
+ * Between them something is always swimming against the river.
  *
- *   θ(u) = amp · [ (1-q)·sin(2πk u)  +  q·crenel(k u) ]
+ * Three things worth writing down, because they are what the module is.
  *
- *   wave     amp 0.9,  k 2.5,  q 0    a sine-generated curve, shallow
- *   square   amp π/2,  k 10,   q 1    θ steps between 0 and ±π/2 — exact right
- *                                     angles, because a heading of ±π/2 *is* a
- *                                     right angle, not an approximation of one
- *   snake    amp 1.9,  k 4,    q 0    the same sine, deep enough to read as a
- *                                     meander
+ * FIRST: the river is defined by its *heading*, not its position. θ(u) is the
+ * direction it points at each distance u along itself, and the points come from
+ * integrating that — step du in the direction θ, over and over. Because every
+ * step is the same length, u is arc length, which is what makes the cats easy:
+ * evenly spaced in u is evenly spaced along the river, through corners and all.
+ * In the heading domain the three stretches are one expression, differing only
+ * in what they put in it:
  *
- * So `square` costs one extra term, and morphing between the regimes is three
- * weights that sum to 1 — the river visibly stiffens and relaxes instead of
- * cross-dissolving between two pictures. Nothing is spawned or destroyed; the
- * cats stay on the curve while the curve changes underneath them.
+ *   wave     θ = 0.85·sin(2πu/1.6)      a sine-generated curve, shallow
+ *   square   θ steps between 0 and ∓π/2  exact right angles, because a heading
+ *                                        of π/2 *is* a right angle rather than
+ *                                        an approximation of one
+ *   snake    θ = 0.9·sin(2πu/1.9)        the same sine, wandering
  *
- * Why it doesn't cross itself: the sine regimes are sine-generated curves,
- * which are simple (non-self-intersecting) as long as the heading amplitude
- * stays under about 2.2 rad — past that the curve folds back through itself.
- * SNAKE_AMP is 1.9, which is inside that bound with room to spare, and the
- * wave is far below it. The crenel regime is monotone in x — it only ever moves
- * right or straight up and down, and the risers alternate — so it cannot cross
- * itself either. This is a bound that is kept, not a collision test that is run;
- * if you raise SNAKE_AMP past ~2.1 the guarantee is gone and the river will tie
- * a knot. tools/river-check.mjs measures it.
+ * SECOND: nothing is ever scaled to fit. An earlier draft fitted the whole
+ * curve into the frame every frame, which is a tidy picture and the wrong one —
+ * a curve that always fits can never leave, so the right angles could only ever
+ * be a small comb in the middle of the screen, and folding it up compressed the
+ * cats and sped them up exactly when it folded. Here the river is built at a
+ * fixed size in frame-heights and the frame *travels*, so a riser taller than
+ * the frame simply runs off the top, and the cats keep one pace throughout.
+ *
+ * That pace is two constants and no more. PAN is how fast the frame slides
+ * along, FLOW is how fast the cats swim; both are held for the whole burst, so
+ * there is no moment anywhere in it where anything speeds up. The burst is as
+ * long as the river takes at that pace — BURST_LENGTH is derived, not chosen.
+ *
+ * THIRD: the counter-currents are more courses in the same world, not more
+ * bursts. Neither has a start time of its own — they simply exist alongside the
+ * river, and the frame finds them when it gets there. Which is why the drawing
+ * code takes a course rather than knowing about the river: there are three now,
+ * and one loop draws any of them.
+ *
+ * Where they can go is decided by where the river is *not*: about 0.23 of a
+ * frame-height of clear water under the right angles, 0.60 under the opening
+ * wave, and alongside the meander only the channel between its own bends. The
+ * under-river is shaped to exactly that, which is why it cannot open out until
+ * it is past the teeth.
+ *
+ * Not touching is the one thing here with no bound behind it. Everything else
+ * is guaranteed by construction — right angles because a heading of π/2 is one,
+ * no self-crossing because the amplitude stays under the ~2.2 rad where a
+ * sine-generated curve folds. Two *different* curves clearing each other is not
+ * something a bound gives you, so the phases and offsets were swept numerically
+ * and river-check measures every pair, point against point: river/counter is
+ * the tightest at 0.038. Move any constant and that moves with it — check it
+ * rather than assuming it survived. It is also what cost the meander its depth,
+ * as SNAKE_AMP explains below.
  *
  * Like draw() in viz.js, tailBurst() in tail.js, faceBurst() in face.js and
  * spiralBurst() in spiral.js this is a pure function of time — no counters, no
  * rand(), nothing carried between frames. Scrub back into the burst an hour
- * later and you get the identical frame. Keep it that way: `flow` in particular
- * is the *distance travelled*, in closed form, and not a speed anybody
+ * later and you get the identical frame. Keep it that way: both PAN and FLOW
+ * are multiplied by `since` in closed form, and are not rates anybody
  * integrates.
+ *
+ * One thing here is not a function of the river at all: pulse.js swells a
+ * single visible cat on every hit in the score, which is why riverBurst takes
+ * beats. It stays pure the same way everything else does — the cat a hit picks
+ * is hashed from the hit's index, not remembered.
+ *
+ * tools/river-check.mjs draws all three courses and audits the claims below.
  */
 
-export const BURST_LENGTH = 38; // seconds, start to nothing on screen
+import { swells } from './pulse.js';
 
-const SAMPLES = 1024; // points the curve is integrated at; sets how sharp a corner is
-const FLOW = 0.055; // river lengths a cat travels per second — about 18s end to end
-// Cats are a fixed size and the *count* follows the river's length, rather than
-// a fixed count sized to fit. It has to be this way round: the square regime is
-// nearly three times longer, end to end, than the wave, so a fixed count would
-// grow the cats to fill it — exactly when the risers get short — and the right
-// angles would blur into a thick band instead of reading as corners.
-const CAT_H = 0.075; // cat height, as a fraction of frame height
-const GAP = 0.055; // and the distance between them along the river, same units
-const MAX_BEADS = 200; // backstop; the river asks for about 100 at its longest
-const MARGIN_X = 0.07; // fraction of the frame kept clear on each side
-const MARGIN_Y = 0.14; // and on top and bottom
-const EDGE_FADE = 0.06; // fraction of the river over which a cat fades in and out
+// Everything here is in frame-heights: 1.0 is the height of the window. Widths
+// come from the aspect at draw time, so the river is the same river on any
+// shape of screen and only the amount of it you can see changes.
+const PAN = 0.22; // frame-heights per second the frame slides down the river
+const FLOW = 0.32; // and per second that the cats swim along it
+const CAT_H = 0.075; // cat height
+const GAP = 0.065; // distance between cats along the river
+const LANES = 3; // cats abreast — the river is three cats wide
+const LANE = 0.055; // and this is the gap between those three, across the flow
+const DROP = 0.18; // how far below the river's runs the frame centres itself
+const EDGE_FADE = 0.6; // arc length over which cats fade in at the source and out at the mouth
+const STEP = 1 / 96; // integration step; also the finest corner the curve can hold
+const NOMINAL_ASPECT = 16 / 9; // only used to derive BURST_LENGTH, which needs a width
 
-const WAVE_AMP = 0.9; // heading amplitude, radians
-const WAVE_K = 2.5; // crests across the whole river
-const CRENEL_K = 10; // right-angle cycles — ten of them, so twenty corners
-// Fraction of a cycle spent running flat; the rest is risers. Low, because ten
-// cycles across a frame gives each one a tenth of the width to spend, and a
-// tooth has to be taller than it is wide to read as a tooth. At 0.28 the risers
-// come out about two and a half cats tall and the runs about one cat wide.
-const CRENEL_DUTY = 0.28;
-const SNAKE_AMP = 1.9; // radians; stays under the ~2.2 that would fold the curve
-const SNAKE_K = 4;
+const WAVE_ARC = 2.2; // how much river the opening wave gets
+const WAVE_AMP = 0.85; // heading amplitude, radians
+const WAVE_LEN = 1.6; // arc length per crest
+const BLEND = 0.9; // arc length each stretch takes to become the next
+
+const TEETH = 9; // right-angle turns — nine of them, so thirty-six corners
+const RISER = 1.0; // how far a riser climbs: a whole frame-height, so it leaves
+const RUN = 0.3; // and how far the flat runs between them go
+// The corners get a radius, which a right angle does not want but three lanes
+// of cats do: at a true corner the inside lane has nothing to bend around and
+// folds through itself. This is the smallest rounding whose tightest radius
+// still clears the inside lane — ROUND/(1.5·π/2), which river-check reports
+// against LANE. Against a 0.35 run it is still plainly a right-angle turn.
+const ROUND = 0.14;
+const TOOTH = 2 * RISER + 2 * RUN;
+
+// The closing meander. SNAKE_AMP was 1.9 — deep and serpentine — until the
+// counter-river below had to interlock with it, and could not: at 1.9 the
+// meander's own arms sit about 0.27 apart across the flow, and two ribbons need
+// LANE·(LANES-1)+CAT_H between their centre lines just to avoid touching. There
+// is no channel to thread. At 0.9 there is. This is the cost of the mesh, and
+// it is paid here rather than anywhere else.
+const SNAKE_ARC = 4.5; // how much river the closing meander gets
+const SNAKE_AMP = 0.9; // radians; stays under the ~2.2 that would fold the curve
+const SNAKE_LEN = 1.9; // arc length per bend
+
+// The counter-river: one file of cats swimming the other way, its bends set
+// into the first river's bends. It is single file because three abreast will
+// not fit through the channel — see river-check's "clear" row for the margin
+// that is actually left. It is not a separate burst and has no start time of
+// its own: it simply exists in the world alongside the meander, and the frame
+// finds it when it gets there.
+const B_LANES = 1;
+const B_AMP = 0.9; // same bend as the river it threads, so the mesh stays regular
+const B_LEN = 1.9;
+const B_PHASE = 1.04; // where in its own bend it starts — swept for the widest gap
+const B_DROP = 0.29; // and how far across the flow it sits from the meander's line
+// How far past the mouth of the meander it starts, so it arrives from off-frame
+// rather than appearing in view. It runs only the length of the meander and no
+// further: upstream of that the first river is climbing its risers, and a
+// counter-river carried on into them would swim straight through one.
+const B_LEAD = 0.9;
+
+// The under-river: the other counter-current, and the early one. It runs the
+// whole length of the piece *before* the meander — under the right angles and
+// on under the opening wave — and it is the first thing on screen, because it
+// reaches a lead further left than the river's own source does.
+//
+// What it does with the room is the point. Under the teeth there is only about
+// 0.23 of a frame-height of clear water beneath the runs, so it swims tight and
+// nearly straight; under the opening wave there is 0.60, so it opens out into
+// long lazy swings. Same course, same cats, and the shape reports how much space
+// it is in.
+const C_LANES = 1;
+const C_LOW = 0.24; // how far under the square runs it starts
+const C_TIGHT = 0.1; // heading amplitude in the shallow water under the teeth
+const C_OPEN = 0.8; // and in the deep water under the wave
+const C_LEN = 1.8; // arc length per swing
+const C_PHASE = 0;
+const C_AT = 6.5; // where along itself it starts opening out
+const C_WIDE = 1.5; // and how much arc it takes to do it
+// A slight upward lean, held only across that opening, lifts the course out of
+// the shallow room into the tall room. Integrated over C_WIDE it is this much
+// rise — without it the wide swings would go straight out of the bottom.
+const C_RISE = 0.1;
+const C_LEAD = 0.9;
+
 const TAU = Math.PI * 2;
-
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const ramp = (x, a, b) => smooth((x - a) / (b - a));
 
+// Where each stretch starts and ends along the river.
+const SQ_IN = WAVE_ARC;
+const SQ_AT = SQ_IN + BLEND;
+const SQ_OUT = SQ_AT + TEETH * TOOTH;
+const SN_AT = SQ_OUT + BLEND;
+const LENGTH = SN_AT + SNAKE_ARC;
+
 /**
- * A square wave in the heading: flat run, quarter turn up, flat run, quarter
- * turn down. Returns -1, 0 or +1 — the caller scales it, and at amp π/2 those
- * are exactly the right angles the shape is named for.
+ * A square wave in the heading: flat run, quarter turn *up*, flat run, quarter
+ * turn back down. Returns -1, 0 or +1 — the caller scales it, and at π/2 those
+ * are the right angles the stretch is named for. Up is negative because canvas
+ * y grows downward, and the first turn has to be the one that leaves the frame.
+ *
+ * Built from four ramps rather than four steps, so each corner turns over ROUND
+ * of arc instead of instantly. The tooth is measured from the middle of a run,
+ * which is the one arrangement where no turn straddles the wrap and the level
+ * is 0 at both ends of the cycle — otherwise every ninth corner is a tear.
  */
 function crenel(v) {
   const w = v - Math.floor(v);
-  const run = CRENEL_DUTY / 2;
-  if (w < run) return 0;
-  if (w < 0.5) return 1;
-  if (w < 0.5 + run) return 0;
-  return -1;
+  const r = RUN / TOOTH;
+  const i = RISER / TOOTH;
+  const rr = ROUND / TOOTH;
+  return (
+    -ramp(w, r / 2, r / 2 + rr) +
+    ramp(w, r / 2 + i, r / 2 + i + rr) +
+    ramp(w, 1.5 * r + i, 1.5 * r + i + rr) -
+    ramp(w, 1.5 * r + 2 * i, 1.5 * r + 2 * i + rr)
+  );
 }
 
 /**
- * The whole score, as numbers, at `s` seconds in. The three regime weights sum
- * to 1 at every instant, so the river is always exactly one river; change the
- * timing here rather than anywhere below.
+ * Where the river points at distance `u` along itself. The three stretches
+ * overlap for BLEND either side and their weights sum to 1 throughout, so the
+ * river stiffens into its corners and relaxes out of them rather than cutting
+ * between two shapes.
  */
-function score(s) {
-  const stiff = ramp(s, 9, 14); // wave → square
-  const loose = ramp(s, 24, 29); // square → snake
-  const wave = 1 - stiff;
-  const square = stiff - loose;
-  return {
-    alpha: ramp(s, 0, 1.6) * (1 - ramp(s, 35, BURST_LENGTH)),
-    amp: wave * WAVE_AMP + square * (Math.PI / 2) + loose * SNAKE_AMP,
-    k: wave * WAVE_K + square * CRENEL_K + loose * SNAKE_K,
-    q: square,
-    // Distance travelled, not a speed: this is what keeps the burst scrubbable.
-    flow: FLOW * s,
-  };
-}
-
-/** Where the river points at fraction `u` along itself. */
-function heading(u, p) {
-  const v = p.k * u;
-  return p.amp * ((1 - p.q) * Math.sin(TAU * v) + p.q * crenel(v));
+function heading(u) {
+  const stiff = ramp(u, SQ_IN, SQ_AT);
+  const loose = ramp(u, SQ_OUT, SN_AT);
+  return (
+    (1 - stiff) * WAVE_AMP * Math.sin((TAU * u) / WAVE_LEN) +
+    (stiff - loose) * (Math.PI / 2) * crenel((u - SQ_AT) / TOOTH) +
+    loose * SNAKE_AMP * Math.sin((TAU * (u - SN_AT)) / SNAKE_LEN)
+  );
 }
 
 /**
- * Integrate the heading into points, then fit the result to the frame. The fit
- * has to happen every frame because the shape's own proportions change a lot —
- * the folded-up square regime is nearly three times longer, end to end, than
- * the wave that precedes it, and without refitting it would walk off the side.
+ * Integrate a heading into a course, once, at load. It depends on nothing but
+ * the constants above — no canvas, no aspect — so the courses are one fixed
+ * world and every frame is a window onto it.
  */
-function buildPath(W, H, p) {
-  const xs = new Float64Array(SAMPLES + 1);
-  const ys = new Float64Array(SAMPLES + 1);
-  const ths = new Float64Array(SAMPLES + 1);
-  const du = 1 / SAMPLES;
-
-  let x = 0;
-  let y = 0;
-  let x0 = 0;
-  let x1 = 0;
-  let y0 = 0;
-  let y1 = 0;
-  for (let i = 0; i <= SAMPLES; i++) {
+function makeCourse(θ, length, ox = 0, oy = 0, lanes = LANES) {
+  const n = Math.ceil(length / STEP);
+  const xs = new Float64Array(n + 1);
+  const ys = new Float64Array(n + 1);
+  const ths = new Float64Array(n + 1);
+  let x = ox;
+  let y = oy;
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  for (let i = 0; i <= n; i++) {
     xs[i] = x;
     ys[i] = y;
-    ths[i] = heading(i * du, p);
+    ths[i] = θ(i * STEP);
     if (x < x0) x0 = x;
     if (x > x1) x1 = x;
-    if (y < y0) y0 = y;
-    if (y > y1) y1 = y;
-    x += Math.cos(ths[i]) * du;
-    y += Math.sin(ths[i]) * du;
+    x += Math.cos(ths[i]) * STEP;
+    y += Math.sin(ths[i]) * STEP;
   }
+  return { xs, ys, ths, n, x0, x1, length, lanes };
+}
 
-  const scale = Math.min(
-    ((1 - 2 * MARGIN_X) * W) / Math.max(x1 - x0, 1e-6),
-    ((1 - 2 * MARGIN_Y) * H) / Math.max(y1 - y0, 1e-6),
-  );
+const RIVER = makeCourse(heading, LENGTH);
+// The runs of the square stretch are the river's floor, and the frame hangs its
+// centre a little under them so the risers have somewhere to leave to.
+const BASE = RIVER.ys[Math.round(SQ_AT / STEP)];
+
+// The counter-river is placed off the first river's own geometry rather than
+// off typed-in coordinates: it starts a lead past where the meander ends, sits
+// across the flow from the line the meander leaves on, and is long enough to
+// run back past where the meander began. Move the meander and it follows.
+const SNAKE_X = RIVER.xs[Math.round(SN_AT / STEP)];
+const SNAKE_Y = RIVER.ys[Math.round(SN_AT / STEP)];
+const COUNTER = makeCourse(
+  (u) => Math.PI + B_AMP * Math.sin((TAU * (u + B_PHASE)) / B_LEN),
+  (RIVER.x1 - SNAKE_X + B_LEAD) / bessel0(B_AMP),
+  RIVER.x1 + B_LEAD,
+  SNAKE_Y + B_DROP,
+  B_LANES,
+);
+
+/**
+ * The under-river's heading. Two things happen across the same window: the
+ * swing opens from C_TIGHT to C_OPEN, and a lean lifts the whole course into
+ * the taller room that made the wider swing possible in the first place.
+ */
+function under(u) {
+  const open = ramp(u, C_AT, C_AT + C_WIDE);
+  const amp = C_TIGHT + (C_OPEN - C_TIGHT) * open;
+  const lean = (C_RISE / C_WIDE) * (ramp(u, C_AT, C_AT + 0.25) - ramp(u, C_AT + C_WIDE - 0.25, C_AT + C_WIDE));
+  return Math.PI + amp * Math.sin((TAU * (u + C_PHASE)) / C_LEN) + lean;
+}
+
+// It starts a lead past where the teeth end and runs to a lead before the
+// river's own source — which is why it is on screen before the river is.
+const TEETH_X = RIVER.xs[Math.round(SQ_OUT / STEP)];
+const UNDER = makeCourse(
+  under,
+  (TEETH_X + C_LEAD - (RIVER.x0 - C_LEAD)) / bessel0((C_TIGHT + C_OPEN) / 2),
+  TEETH_X + C_LEAD,
+  BASE + C_LOW,
+  C_LANES,
+);
+
+const COURSES = [RIVER, COUNTER, UNDER];
+
+// As long as it takes to pan the whole course, plus a frame's width at each end
+// so the river arrives from off-screen and leaves the same way.
+export const BURST_LENGTH = Math.round((RIVER.x1 - RIVER.x0 + NOMINAL_ASPECT) / PAN);
+
+/**
+ * How far a sine-generated curve advances along its own axis per unit of arc —
+ * the Bessel function J₀ of the heading amplitude, which is the mean of
+ * cos(a·sin θ). Only needed to work out how much arc the counter-river needs to
+ * cover a given width, so a short series is plenty.
+ */
+function bessel0(a) {
+  let term = 1;
+  let sum = 1;
+  for (let k = 1; k < 12; k++) {
+    term *= -((a * a) / 4) / (k * k);
+    sum += term;
+  }
+  return sum;
+}
+
+/** A course's point and heading at distance `u`, interpolated between samples. */
+function at(course, u) {
+  const f = clamp01(u / course.length) * course.n;
+  const i = Math.min(course.n - 1, Math.floor(f));
+  const t = f - i;
   return {
-    xs,
-    ys,
-    ths,
-    scale,
-    ox: W / 2 - ((x0 + x1) / 2) * scale,
-    oy: H / 2 - ((y0 + y1) / 2) * scale,
+    x: course.xs[i] + (course.xs[i + 1] - course.xs[i]) * t,
+    y: course.ys[i] + (course.ys[i + 1] - course.ys[i]) * t,
+    th: course.ths[i],
   };
 }
 
@@ -173,51 +327,78 @@ function buildPath(W, H, p) {
  * the end and nothing is drawn. `cats` is the image cast. Returns whether
  * anything was drawn.
  *
- *   riverBurst(ctx, canvas.width, canvas.height, t - 82, cats)
+ *   riverBurst(ctx, canvas.width, canvas.height, t - 66, cats)
  */
-export function riverBurst(ctx, W, H, since, cats) {
+export function riverBurst(ctx, W, H, since, cats, beats = []) {
   if (since < 0 || since > BURST_LENGTH || !cats.length) return false;
-  const p = score(since);
-  if (p.alpha <= 0.001) return false;
+  const alpha = ramp(since, 0, 1.6) * (1 - ramp(since, BURST_LENGTH - 2.5, BURST_LENGTH));
+  if (alpha <= 0.001) return false;
 
-  const path = buildPath(W, H, p);
-  // Arc length is 1 in path units, so the river's whole on-screen length is
-  // just `scale` — and how many cats fit on it at a fixed spacing is that over
-  // the gap. The river gets longer as it folds, so it asks for more cats; the
-  // extra ones arrive at the mouth, inside the fade, rather than popping in.
-  const h = CAT_H * H;
-  const step = (GAP * H) / path.scale;
-  const beads = Math.min(MAX_BEADS, Math.floor(1 / step));
+  // The frame slides down the river at PAN, starting a half-width before the
+  // source. Its height never moves: that is what lets the risers leave.
+  const camX = RIVER.x0 - 0.5 * (W / H) - CAT_H + PAN * since;
+  const camY = BASE - DROP;
+  const frame = { camX, camY, halfW: 0.5 * (W / H), pan: PAN };
+  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP);
 
   ctx.save();
-  ctx.globalAlpha = p.alpha;
-
-  for (let i = 0; i < beads; i++) {
-    const u = (i * step + p.flow) % 1;
-    const f = u * SAMPLES;
-    const j = Math.floor(f);
-    const frac = f - j;
-    const x = path.ox + (path.xs[j] + (path.xs[j + 1] - path.xs[j]) * frac) * path.scale;
-    const y = path.oy + (path.ys[j] + (path.ys[j + 1] - path.ys[j]) * frac) * path.scale;
-    const th = path.ths[j];
-
-    const img = cats[(i * 7 + 3) % cats.length];
-    const w = h * (img.width / img.height);
-
-    ctx.save();
-    // Fade at both ends, so a cat that reaches the mouth of the river leaves
-    // rather than teleporting back to the source.
-    ctx.globalAlpha = p.alpha * clamp01(u / EDGE_FADE) * clamp01((1 - u) / EDGE_FADE);
-    ctx.translate(x, y);
-    ctx.rotate(th);
-    // Past a quarter turn the cat is heading backwards and lying on its back.
-    // Mirroring across its own long axis puts its feet down again without
-    // taking it off the line it is following.
-    if (Math.cos(th) < 0) ctx.scale(1, -1);
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
-    ctx.restore();
-  }
-
+  ctx.globalAlpha = alpha;
+  // The counter-river second, so where the two mesh its file of cats reads as
+  // passing in front rather than being half-buried in the wider ribbon.
+  COURSES.forEach((course, c) => swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen[c]));
   ctx.restore();
   return true;
+}
+
+/** One course's worth of cats, at `since` seconds, through a frame at (camX, camY). */
+function swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen) {
+  const cull = CAT_H + LANE * (course.lanes - 1);
+  const h = CAT_H * H;
+
+  // Every place on the course, culled to the ones the frame can see. A course
+  // is only a few hundred of these, so the test is cheaper than being clever
+  // about which stretch is on screen.
+  for (let k = 0; k * GAP < course.length; k++) {
+    // Wrapped, so the course stays populated end to end: a cat reaching the
+    // mouth comes back in at the source. Without the wrap the whole train
+    // swims off downstream and leaves the frame — which pans slower than the
+    // cats swim — looking at empty river for the first third of the burst.
+    // The two ends are never on screen together, so the wrap is never seen.
+    const u = (k * GAP + FLOW * since) % course.length;
+    // One hit swells one cat, so the whole file at k is not what grows — the
+    // middle lane is, and the outer ones carry on. On a single-file course that
+    // is the only lane there is. Looked up before the cull because a swelling
+    // cat reaches further, and only that one needs the wider margin.
+    const grow = swollen?.get(k) ?? 0;
+    const edge = cull * (1 + grow);
+
+    const p = at(course, u);
+    const x = (p.x - camX) * H + W / 2;
+    const y = (p.y - camY) * H + H / 2;
+    if (x < -edge * H || x > W + edge * H || y < -edge * H || y > H + edge * H) continue;
+
+    const fade = clamp01(u / EDGE_FADE) * clamp01((course.length - u) / EDGE_FADE);
+    const nx = -Math.sin(p.th); // across the flow, for the lanes
+    const ny = Math.cos(p.th);
+    const mid = (course.lanes - 1) / 2;
+
+    for (let lane = 0; lane < course.lanes; lane++) {
+      const off = (lane - mid) * LANE * H;
+      const img = cats[(k * 7 + lane * 23 + 3) % cats.length];
+      const size = h * (lane === Math.round(mid) ? 1 + grow : 1);
+      const w = size * (img.width / img.height);
+
+      ctx.save();
+      ctx.globalAlpha = alpha * fade;
+      ctx.translate(x + nx * off, y + ny * off);
+      ctx.rotate(p.th);
+      // Past a quarter turn the cat is heading backwards and lying on its back.
+      // Mirroring across its own long axis puts its feet down again without
+      // taking it off the line it is following. The counter-river is entirely
+      // past a quarter turn, which is exactly why it faces the other way.
+      if (Math.cos(p.th) < 0) ctx.scale(1, -1);
+      ctx.drawImage(img, -w / 2, -size / 2, w, size);
+      ctx.restore();
+    }
+  }
 }

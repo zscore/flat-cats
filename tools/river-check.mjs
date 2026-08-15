@@ -1,169 +1,261 @@
 /**
- * river-check.mjs — look at the river's path, and prove it stays untied.
+ * river-check.mjs — look at the river's course, and audit what river.js claims.
  *
- *   node tools/river-check.mjs > out/river.html   # then open it
+ *   node tools/river-check.mjs   # writes out/river.html
  *
- * river.js draws cats, and there is no canvas here to draw them on. What can be
- * checked without one is the curve they sit on, which is the whole design: the
- * shape at a dozen moments, the number of right angles it actually turns, and
- * whether any part of it crosses any other part.
+ * river.js draws cats and there is no canvas here to draw them on. What can be
+ * checked without one is the curve they ride, which is the whole design. Four
+ * claims, in the order they matter:
  *
- * The crossing test is the one that matters. river.js claims non-intersection
- * from a bound on the heading amplitude rather than from a collision test, so
- * this is where that claim gets audited — every segment against every other,
- * at every sampled moment of the burst.
+ *   leaves      the risers clear the top of the frame — the thing that stopped
+ *               being true when the old draft scaled everything to fit
+ *   untied      no part of the course crosses any other part. river.js gets
+ *               this from a bound on the heading amplitude rather than from a
+ *               collision test, so this is where that bound gets audited
+ *   steady      nothing speeds up: one pan rate, one flow rate, all burst
+ *   wide        three lanes abreast, and how badly the inside lane pinches at a
+ *               right angle, where the corner has no radius to give it
+ *   clear       the counter-river interlocks with the meander without touching
+ *               it. This is the one claim with no bound behind it at all — the
+ *               phase and offset were swept for it numerically — so it is
+ *               measured here the only honest way: every point of one course
+ *               against every point of the other
+ *
+ * The picture is the whole course drawn end to end with the travelling frame
+ * marked on it at a dozen moments, so the shape and what you actually see of it
+ * are both in one image.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
+const river = await import('../river.js');
 const src = readFileSync(new URL('../river.js', import.meta.url), 'utf8');
-const { BURST_LENGTH } = await import('../river.js');
 
 // river.js keeps its internals private, which is right for the module and
-// awkward for a checker. Rather than export them just for this, rebuild the
-// curve from the same constants by reading them out of the source.
+// awkward for a checker. Rather than export them just for this, read the
+// constants back out of the source and rebuild the course the same way.
 const num = (name) => {
-  const m = src.match(new RegExp(`^const ${name} = ([-\\d.]+)`, 'm'));
+  const m = src.match(new RegExp(`^const ${name} = ([-\\d./ ]+);`, 'm'));
   if (!m) throw new Error(`no constant ${name} in river.js`);
-  return Number(m[1]);
+  return eval(m[1]);
 };
 const K = Object.fromEntries(
-  ['SAMPLES', 'CAT_H', 'GAP', 'WAVE_AMP', 'WAVE_K', 'CRENEL_K', 'CRENEL_DUTY', 'SNAKE_AMP',
-   'SNAKE_K', 'MARGIN_X', 'MARGIN_Y'].map((n) => [n, num(n)]),
+  ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'STEP', 'WAVE_ARC', 'WAVE_AMP',
+   'WAVE_LEN', 'BLEND', 'TEETH', 'RISER', 'RUN', 'ROUND', 'SNAKE_ARC', 'SNAKE_AMP', 'SNAKE_LEN',
+   'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
+   'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD']
+    .map((n) => [n, num(n)]),
 );
-const TAU = Math.PI * 2;
+const TOOTH = 2 * K.RISER + 2 * K.RUN;
+const SQ_IN = K.WAVE_ARC, SQ_AT = SQ_IN + K.BLEND;
+const SQ_OUT = SQ_AT + K.TEETH * TOOTH, SN_AT = SQ_OUT + K.BLEND;
+const LENGTH = SN_AT + K.SNAKE_ARC;
+const TAU = Math.PI * 2, ASPECT = 16 / 9;
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const ramp = (x, a, b) => smooth((x - a) / (b - a));
 
 function crenel(v) {
-  const w = v - Math.floor(v);
-  const run = K.CRENEL_DUTY / 2;
-  if (w < run) return 0;
-  if (w < 0.5) return 1;
-  if (w < 0.5 + run) return 0;
-  return -1;
+  const w = v - Math.floor(v), r = K.RUN / TOOTH, i = K.RISER / TOOTH, rr = K.ROUND / TOOTH;
+  return -ramp(w, r / 2, r / 2 + rr) + ramp(w, r / 2 + i, r / 2 + i + rr)
+    + ramp(w, 1.5 * r + i, 1.5 * r + i + rr) - ramp(w, 1.5 * r + 2 * i, 1.5 * r + 2 * i + rr);
 }
+const heading = (u) => {
+  const stiff = ramp(u, SQ_IN, SQ_AT), loose = ramp(u, SQ_OUT, SN_AT);
+  return (1 - stiff) * K.WAVE_AMP * Math.sin((TAU * u) / K.WAVE_LEN)
+    + (stiff - loose) * (Math.PI / 2) * crenel((u - SQ_AT) / TOOTH)
+    + loose * K.SNAKE_AMP * Math.sin((TAU * (u - SN_AT)) / K.SNAKE_LEN);
+};
 
-function score(s) {
-  const stiff = ramp(s, 9, 14);
-  const loose = ramp(s, 24, 29);
-  const wave = 1 - stiff;
-  const square = stiff - loose;
-  return {
-    amp: wave * K.WAVE_AMP + square * (Math.PI / 2) + loose * K.SNAKE_AMP,
-    k: wave * K.WAVE_K + square * K.CRENEL_K + loose * K.SNAKE_K,
-    q: square,
-  };
-}
-
-const heading = (u, p) => p.amp * ((1 - p.q) * Math.sin(TAU * p.k * u) + p.q * crenel(p.k * u));
-
-/** Same integration river.js does, fitted to a W×H box. */
-function path(W, H, p) {
-  const n = K.SAMPLES;
-  const pts = [];
-  let x = 0;
-  let y = 0;
-  let x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+const n = Math.ceil(LENGTH / K.STEP);
+const xs = [], ys = [], ths = [];
+{
+  let x = 0, y = 0;
   for (let i = 0; i <= n; i++) {
-    pts.push([x, y]);
-    if (x < x0) x0 = x; if (x > x1) x1 = x;
-    if (y < y0) y0 = y; if (y > y1) y1 = y;
-    const th = heading(i / n, p);
-    x += Math.cos(th) / n;
-    y += Math.sin(th) / n;
+    xs.push(x); ys.push(y); ths.push(heading(i * K.STEP));
+    x += Math.cos(ths[i]) * K.STEP;
+    y += Math.sin(ths[i]) * K.STEP;
   }
-  const scale = Math.min(((1 - 2 * K.MARGIN_X) * W) / Math.max(x1 - x0, 1e-6),
-                         ((1 - 2 * K.MARGIN_Y) * H) / Math.max(y1 - y0, 1e-6));
-  const ox = W / 2 - ((x0 + x1) / 2) * scale;
-  const oy = H / 2 - ((y0 + y1) / 2) * scale;
-  return {
-    pts: pts.map(([px, py]) => [ox + px * scale, oy + py * scale]),
-    // What the picture actually costs in cats: how many fit end to end, and how
-    // tall the river stands in cat-heights — under about 2 and the corners stop
-    // reading as corners.
-    cats: Math.floor(scale / (K.GAP * H)),
-    deep: ((y1 - y0) * scale) / (K.CAT_H * H),
-  };
+}
+const base = ys[Math.round(SQ_AT / K.STEP)];
+const camY = base - K.DROP;
+const x0 = Math.min(...xs), x1 = Math.max(...xs);
+
+// ------------------------------------------------------- the counter-river --
+
+function bessel0(a) { let t = 1, s = 1; for (let k = 1; k < 12; k++) { t *= -(a * a / 4) / (k * k); s += t; } return s; }
+const snX = xs[Math.round(SN_AT / K.STEP)], snY = ys[Math.round(SN_AT / K.STEP)];
+const bArc = (x1 - snX + K.B_LEAD) / bessel0(K.B_AMP);
+const bn = Math.ceil(bArc / K.STEP);
+const bxs = [], bys = [];
+{
+  let x = x1 + K.B_LEAD, y = snY + K.B_DROP;
+  for (let i = 0; i <= bn; i++) {
+    bxs.push(x); bys.push(y);
+    const th = Math.PI + K.B_AMP * Math.sin((TAU * (i * K.STEP + K.B_PHASE)) / K.B_LEN);
+    x += Math.cos(th) * K.STEP; y += Math.sin(th) * K.STEP;
+  }
 }
 
-// ------------------------------------------------------------- the crossing --
+// The under-river, built the same way: it starts past the end of the teeth and
+// runs back past the river's own source.
+const sqX = xs[Math.round(SQ_OUT / K.STEP)];
+const cArc = (sqX + K.C_LEAD - (x0 - K.C_LEAD)) / bessel0((K.C_TIGHT + K.C_OPEN) / 2);
+const cn = Math.ceil(cArc / K.STEP);
+const cxs = [], cys = [];
+{
+  let x = sqX + K.C_LEAD, y = base + K.C_LOW;
+  for (let i = 0; i <= cn; i++) {
+    cxs.push(x); cys.push(y);
+    const u = i * K.STEP;
+    const open = ramp(u, K.C_AT, K.C_AT + K.C_WIDE);
+    const amp = K.C_TIGHT + (K.C_OPEN - K.C_TIGHT) * open;
+    const lean = (K.C_RISE / K.C_WIDE) * (ramp(u, K.C_AT, K.C_AT + 0.25) - ramp(u, K.C_AT + K.C_WIDE - 0.25, K.C_AT + K.C_WIDE));
+    const th = Math.PI + amp * Math.sin((TAU * (u + K.C_PHASE)) / K.C_LEN) + lean;
+    x += Math.cos(th) * K.STEP; y += Math.sin(th) * K.STEP;
+  }
+}
+
+// Ribbon half-widths: two courses just touch when their centre lines close to
+// the sum of these, so anything above zero below is real daylight. With three
+// courses it is every pair, not just the pair that was interesting last week.
+const half = (lanes) => (K.LANE * (lanes - 1) + K.CAT_H) / 2;
+const COURSES = [
+  { name: 'river', xs, ys, half: half(K.LANES) },
+  { name: 'counter', xs: bxs, ys: bys, half: half(K.B_LANES) },
+  { name: 'under', xs: cxs, ys: cys, half: half(K.C_LANES) },
+];
+function apart(p, q) {
+  let nearest = Infinity;
+  for (let j = 0; j < q.xs.length; j++)
+    for (let i = 0; i < p.xs.length; i++) {
+      const dx = p.xs[i] - q.xs[j];
+      if (dx > 1.4 || dx < -1.4) continue;
+      const d = dx * dx + (p.ys[i] - q.ys[j]) ** 2;
+      if (d < nearest) nearest = d;
+    }
+  return Math.sqrt(nearest) - p.half - q.half;
+}
+const pairs = [];
+for (let i = 0; i < COURSES.length; i++)
+  for (let j = i + 1; j < COURSES.length; j++)
+    pairs.push([`${COURSES[i].name}/${COURSES[j].name}`, apart(COURSES[i], COURSES[j])]);
+const clearGap = Math.min(...pairs.map(([, g]) => g));
+
+// ------------------------------------------------------------------ untied --
 
 const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-/** Do segments ab and cd properly cross? Touching endpoints don't count. */
-function hits(a, b, c, d) {
-  const d1 = cross(c, d, a), d2 = cross(c, d, b);
-  const d3 = cross(a, b, c), d4 = cross(a, b, d);
-  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
-}
+const hits = (a, b, c, d) => {
+  const d1 = cross(c, d, a), d2 = cross(c, d, b), d3 = cross(a, b, c), d4 = cross(a, b, d);
+  return (d1 > 0) !== (d2 > 0) && (d3 > 0) !== (d4 > 0);
+};
 
 /**
- * Every segment against every other, skipping neighbours. Sampled coarsely —
- * SAMPLES² at 1024 is a million pairs per moment, and a fold big enough to
- * matter is thousands of samples wide, not two.
+ * Every segment against every other, skipping neighbours. Coarsened: a fold big
+ * enough to see is many samples wide, not two, and this is O(n²).
  */
-function selfIntersects(pts, step = 4) {
-  const s = [];
-  for (let i = 0; i < pts.length - 1; i += step) s.push([pts[i], pts[Math.min(i + step, pts.length - 1)]]);
-  let worst = 0;
-  for (let i = 0; i < s.length; i++) {
-    for (let j = i + 2; j < s.length; j++) {
-      if (hits(s[i][0], s[i][1], s[j][0], s[j][1])) worst++;
-    }
-  }
-  return worst;
+function selfIntersections(step = 6) {
+  const seg = [];
+  for (let i = 0; i + step <= n; i += step) seg.push([[xs[i], ys[i]], [xs[i + step], ys[i + step]]]);
+  let count = 0;
+  for (let i = 0; i < seg.length; i++)
+    for (let j = i + 2; j < seg.length; j++)
+      if (hits(seg[i][0], seg[i][1], seg[j][0], seg[j][1])) count++;
+  return count;
 }
 
-/** How much of the curve is turning through a right angle, ±2°. */
-function rightAngles(p) {
-  const n = K.SAMPLES;
-  let corners = 0;
-  let prev = heading(0, p);
-  for (let i = 1; i <= n; i++) {
-    const th = heading(i / n, p);
-    if (Math.abs(Math.abs(th - prev) - Math.PI / 2) < 0.035) corners++;
-    prev = th;
-  }
-  return corners;
+// ------------------------------------------------------------------ leaves --
+
+// The frame's top edge, in the same units the course is drawn in. A riser
+// clears it if the course gets above it — remember y grows downward.
+const top = camY - 0.5;
+let above = 0;
+for (let i = Math.round(SQ_AT / K.STEP); i < Math.round(SQ_OUT / K.STEP); i++) if (ys[i] < top) above++;
+const highest = Math.min(...ys.slice(Math.round(SQ_AT / K.STEP), Math.round(SQ_OUT / K.STEP)));
+const clears = (top - highest).toFixed(2); // frame-heights of riser past the top edge
+
+// -------------------------------------------------------------------- wide --
+
+// At a right angle the corner has no radius, so the inside lane has nothing to
+// bend around and the cats there bunch. Measure the worst case: the tightest
+// turn anywhere, against how far the inside lane sits from the centre line.
+const inside = ((K.LANES - 1) / 2) * K.LANE;
+let tightest = Infinity;
+for (let i = 1; i <= n; i++) {
+  let d = Math.abs(ths[i] - ths[i - 1]);
+  if (d > 1e-9) tightest = Math.min(tightest, K.STEP / d); // radius = ds/dθ
 }
+
+// ------------------------------------------------------------------ steady --
+
+const burst = river.BURST_LENGTH;
+const speeds = `pan ${K.PAN}/s · flow ${K.FLOW}/s · net ${(K.FLOW - K.PAN).toFixed(2)}/s along a run` +
+  ` · ${K.FLOW}/s up a riser · same at every second of the burst`;
 
 // ------------------------------------------------------------------ report --
 
-const W = 640, H = 360;
-const TIMES = [0, 3, 7, 10, 12, 14, 18, 22, 25, 27, 30, 34];
+const SCALE = 78; // px per frame-height, for the drawing
+const pad = 0.6;
+const w = Math.round((x1 - x0 + 2 * pad) * SCALE);
+const yLo = Math.min(...ys, ...bys, ...cys, top) - pad, yHi = Math.max(...ys, ...bys, ...cys, camY + 0.5) + pad;
+const h = Math.round((yHi - yLo) * SCALE);
+const px = (x) => ((x - x0 + pad) * SCALE).toFixed(1);
+const py = (y) => ((y - yLo) * SCALE).toFixed(1);
 
-let bad = 0;
-let cells = '';
-for (const t of TIMES) {
-  const p = score(t);
-  const { pts, cats, deep } = path(W, H, p);
-  const n = selfIntersects(pts);
-  const c = rightAngles(p);
-  if (n) bad++;
-  // Drawn at the cat's real size, so the strip below each curve is the honest
-  // question: is the river deep enough that a cat of that size fits in it?
-  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join('');
-  cells += `<figure><svg viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#111114"/>` +
-    `<path d="${d}" fill="none" stroke="${n ? '#e0564a' : '#8ab6ff'}" stroke-width="${K.CAT_H * H}"` +
-    ` stroke-opacity="0.22" stroke-linecap="round"/>` +
-    `<path d="${d}" fill="none" stroke="${n ? '#e0564a' : '#8ab6ff'}" stroke-width="1.5"/></svg>` +
-    `<figcaption>${t}s · amp ${p.amp.toFixed(2)} · k ${p.k.toFixed(1)} · square ${p.q.toFixed(2)}` +
-    ` · ${cats} cats · ${deep.toFixed(1)} cats deep · corners ${c}` +
-    ` · ${n ? `<b>${n} crossings</b>` : 'clean'}</figcaption></figure>\n`;
+const course = xs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(ys[i])}`).join('');
+const counter = bxs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(bys[i])}`).join('');
+const beneath = cxs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(cys[i])}`).join('');
+const MOMENTS = 12;
+let frames = '';
+for (let m = 0; m < MOMENTS; m++) {
+  const s = (burst * (m + 0.5)) / MOMENTS;
+  const cx = x0 - 0.5 * ASPECT - K.CAT_H + K.PAN * s;
+  frames += `<rect x="${px(cx - 0.5 * ASPECT)}" y="${py(camY - 0.5)}" width="${ASPECT * SCALE}"` +
+    ` height="${SCALE}" fill="none" stroke="#e8b84b" stroke-width="1.4" opacity="0.75"/>` +
+    `<text x="${px(cx - 0.5 * ASPECT) + 4}" y="${py(camY - 0.5) - 4}" fill="#e8b84b"` +
+    ` font-size="11" font-family="ui-monospace,monospace">${s.toFixed(0)}s</text>`;
 }
 
-// The square regime is meant to hold ten cycles; count the turns at its centre.
-const held = rightAngles(score(19));
+const bad = selfIntersections();
+const rows = [
+  ['leaves', `risers clear the frame's top edge by ${clears} frame-heights`, Number(clears) > 0.1],
+  ['untied', bad ? `${bad} self-intersections` : 'no part of the course crosses any other', !bad],
+  ['steady', speeds, true],
+  ['wide', `${K.LANES} lanes, ${K.LANE} apart; tightest turn radius ${tightest.toFixed(3)}` +
+    ` vs inside lane at ${inside.toFixed(3)} — ${tightest < inside ? 'inside lane pinches at the corners' : 'no pinch'}`,
+    tightest >= inside],
+  ['clear', pairs.map(([nm, g]) => `${nm} ${g.toFixed(3)}`).join(' · ') +
+    ` — frame-heights of daylight between ribbons${clearGap <= 0 ? ', SOMETHING TOUCHES' : ''}`,
+    clearGap > 0],
+].map(([k, v, ok]) => `<tr><td>${k}</td><td class="${ok ? 'ok' : 'no'}">${v}</td></tr>`).join('');
 
 writeFileSync(new URL('../out/river.html', import.meta.url),
-  `<!doctype html><meta charset="utf-8"><title>river of cats — the path</title>` +
+  `<!doctype html><meta charset="utf-8"><title>river of cats — the course</title>` +
   `<style>body{background:#0b0b0d;color:#b9b9c2;font:12px ui-monospace,monospace;margin:24px}` +
-  `main{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}` +
-  `figure{margin:0}svg{width:100%;display:block;border:1px solid #1e1e24}` +
-  `figcaption{color:#6a6a72;padding-top:5px}b{color:#e0564a}h1{font-size:13px;font-weight:500}</style>` +
-  `<h1>river of cats — the path, ${TIMES.length} moments of a ${BURST_LENGTH}s burst · ` +
-  `${bad ? `<b>${bad} of them self-intersect</b>` : 'none self-intersect'} · ` +
-  `${held} right-angle turns held at 19s</h1><main>${cells}</main>`);
+  `h1{font-size:13px;font-weight:500}table{border-collapse:collapse;margin-bottom:18px}` +
+  `td{padding:3px 14px 3px 0;vertical-align:top}td:first-child{color:#6a6a72}` +
+  `.ok{color:#8ab6ff}.no{color:#e0564a}figure{margin:0;overflow-x:auto}` +
+  `svg{display:block;border:1px solid #1e1e24;background:#111114}` +
+  `figcaption{color:#6a6a72;padding-top:6px}</style>` +
+  `<h1>river of cats — the whole course, ${LENGTH.toFixed(1)} frame-heights of it, ` +
+  `panned in ${burst}s</h1><table>${rows}</table><figure><svg width="${w}" height="${h}">` +
+  `<path d="${course}" fill="none" stroke="#8ab6ff" stroke-width="${K.CAT_H * SCALE * 3}"` +
+  ` stroke-opacity="0.2" stroke-linecap="round"/>` +
+  `<path d="${course}" fill="none" stroke="#8ab6ff" stroke-width="1.5"/>` +
+  `<path d="${counter}" fill="none" stroke="#e0864a" stroke-width="${K.CAT_H * SCALE * K.B_LANES}"` +
+  ` stroke-opacity="0.25" stroke-linecap="round"/>` +
+  `<path d="${counter}" fill="none" stroke="#e0864a" stroke-width="1.5"/>` +
+  `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="${K.CAT_H * SCALE * K.C_LANES}"` +
+  ` stroke-opacity="0.25" stroke-linecap="round"/>` +
+  `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="1.5"/>${frames}</svg>` +
+  `<figcaption>blue is the river, three cats abreast; orange is the counter-river meshed into ` +
+  `the meander; green is the under-river, which runs the whole way before it — tight under the ` +
+  `right angles, opening out under the wave. both counter-currents run right to left, single ` +
+  `file. bands are drawn at their real width. ` +
+  `gold boxes are the frame at ${MOMENTS} moments; anything outside one is off-screen then.` +
+  `</figcaption></figure>`);
 
-console.log(`wrote out/river.html`);
-console.log(`self-intersections: ${bad} of ${TIMES.length} moments`);
-console.log(`right-angle turns at 19s (square regime): ${held}`);
+console.log(`wrote out/river.html — ${LENGTH.toFixed(1)} frame-heights, ${burst}s burst`);
+console.log(`leaves : risers clear the top by ${clears} frame-heights (${above} samples above it)`);
+console.log(`untied : ${bad} self-intersections`);
+console.log(`steady : ${speeds}`);
+console.log(`wide   : tightest radius ${tightest.toFixed(3)} vs inside lane ${inside.toFixed(3)}`);
+console.log(`clear  : ${pairs.map(([nm, g]) => `${nm} ${g.toFixed(3)}`).join(' · ')}`);

@@ -115,6 +115,11 @@ function frame() {
   hud.innerHTML =
     `<b>${t.toFixed(2)}s</b> / ${score.seconds}s · ${cursor}/${score.count} notes · ` +
     `${shown} cats · ${stage.cast} in the cast · ` +
+    // How many of the burst's cats had to move, and how many had nowhere on
+    // their row to move to. Both depend on the shape of the window, so they are
+    // here rather than in a comment: resize until `dropped` climbs and you have
+    // found the aspect the clearance stops working at.
+    `${stage.flow().moved} moved / ${stage.flow().dropped} dropped · ` +
     `spiral @${stage.spiral.at.toFixed(1)}s · ` +
     `${sounding ? `${sounding.hz.toFixed(0)}Hz deg ${sounding.degree}` : '—'} · ` +
     `${MIX.mapping} · ` +

@@ -257,7 +257,10 @@ function layout(W, H, cat) {
   // and where it lands in the frame is the only placement that matters. Doing
   // it the other way puts a cat whose tail leaves from low on its body — which
   // is most of them — in the corner with nowhere to fan into.
-  const ax = 0.32 * W + Math.cos(head) * h * 0.10;
+  // Well left of centre, which is further left than the fan alone would want:
+  // the moon comes up around the back half of this burst and the fan has to sit
+  // inside its hollow, so the whole thing is shifted to leave that room.
+  const ax = 0.22 * W + Math.cos(head) * h * 0.10;
   const ay = 0.47 * H + Math.sin(head) * h * 0.10;
   return {
     w, h, flip, ax, ay,
@@ -265,6 +268,53 @@ function layout(W, H, cat) {
     y: ay - cat.root[1] * h - Math.sin(head) * h * 0.10,
     base: head,
   };
+}
+
+/**
+ * The frame this burst occupies, as shapes something else can be kept out of.
+ *
+ * It is the union over the whole burst, not the footprint at any one moment.
+ * That is the useful thing to hand out: a cat placed clear of this is clear for
+ * the burst's full thirty seconds, so it can be placed once and then left
+ * alone. Handing out the instantaneous shape instead would mean re-placing
+ * every cat every frame, and cats that slide around under a swaying fan.
+ *
+ * The extremes are read off score() rather than off the constants above. The
+ * timing here is all ramps, and the widest the fan ever opens is whatever those
+ * ramps happen to touch — so moving a ramp moves this, which is the point.
+ */
+export function keepClear(W, H, cat) {
+  const place = layout(W, H, cat);
+  let fan = 0;
+  let reach = 0;
+  let swing = 0;
+  for (let s = 0; s <= BURST_LENGTH; s += 0.1) {
+    const p = score(s);
+    fan = Math.max(fan, p.fan);
+    reach = Math.max(reach, p.reach);
+    swing = Math.max(swing, p.swing);
+  }
+
+  // A tail does not lie along its own ray. It bends off it by the resting arc
+  // plus the swing summed over the octaves, and at the tip that comes to this
+  // fraction of its length sideways — an angle the wedge has to allow either
+  // side of the outermost tail, on top of the fan's own half-angle.
+  const stray = 0.06 + 1.5 * swing;
+  return [
+    // The cat, as its whole image box. Generous — the picture is mostly
+    // transparent at the corners — but the alternative is a matte test per
+    // frame for a rectangle that never moves.
+    { kind: 'rect', x: place.x, y: place.y, w: place.w, h: place.h, pad: ROCK * place.h },
+    {
+      kind: 'wedge',
+      x: place.ax,
+      y: place.ay,
+      base: place.base,
+      half: fan + Math.atan(stray),
+      r: Math.min(0.36 * W, 0.46 * H) * reach,
+      pad: 0.030 * H, // the tails' own half-thickness at the join
+    },
+  ];
 }
 
 /**
