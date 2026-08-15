@@ -43,7 +43,12 @@ export const TONE = {
   peakQ: 5.5, // how narrow that lift is
   hpBelow: 0.7, // highpass at this × the fundamental
   lpAbove: 7, // lowpass at this × the fundamental, capped below
-  lpCap: 5200, // Hz — the meows are 8 kHz sources, nothing lives above this
+  // Hz. Was 5200 when every meow was an 8 kHz source and nothing could live
+  // above 4 kHz anyway — against the 44.1/48 kHz bank that cap is no longer
+  // inert, it actively throws away the top end the new samples were chosen for.
+  // 8000 is where controls.js's slider already tops out. This is the first knob
+  // to move by ear if the bank now sounds bright rather than clean.
+  lpCap: 8000,
 };
 
 export const ENV = { attack: 0.006, release: 0.11, low: { attack: 0.035, release: 0.18 } };
@@ -51,7 +56,7 @@ export const ENV = { attack: 0.006, release: 0.11, low: { attack: 0.035, release
 export const MIX = {
   // Where the sampler hands over to the purr. Below this the nearest meow would
   // have to shift down more than an octave, which turns a 0.3s meow into a 1s
-  // groan. 200 Hz is a little under the lowest meow's own pitch of 291 Hz.
+  // groan. 200 Hz is a little under the lowest meow's own pitch of 247 Hz.
   lowHz: 200,
   // How much of the low voice is the purr riding on the tone, 0..1. All the way
   // at 1 and the tone disappears between pulses; the rest is a floor that keeps
