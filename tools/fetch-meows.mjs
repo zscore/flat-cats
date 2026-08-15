@@ -2,7 +2,7 @@
  * fetch-meows.mjs — a CC0 meow pool from Freesound, licence-checked twice.
  *
  *   FREESOUND_TOKEN=... node tools/fetch-meows.mjs
- *   node tools/fetch-meows.mjs --token=... --want=120 --min-rate=44100
+ *   node tools/fetch-meows.mjs --want=400 --tags='meow OR kitten' --min-rate=44100
  *
  * WHY THIS EXISTS. The bank pick.mjs has been running on is CatMeows (Zenodo
  * 4008297): 440 field recordings at 8 kHz mono. Measured across the 24 that got
@@ -58,16 +58,21 @@ function storedKey() {
 
 const TOKEN = arg('token', process.env.FREESOUND_TOKEN || storedKey());
 const OUT = resolve(arg('out', 'raw/meows'));
-const WANT = Number(arg('want', 120));
+const WANT = Number(arg('want', 400));
 const MIN_RATE = Number(arg('min-rate', 44100));
-// Wide on purpose. Searching "meow" returns 654 CC0 sounds; "cat" returns 6506,
-// and the top of that ranking is not junk — it is the same meows plus growls,
-// hisses and named individual animals on better microphones. The duration
-// window is generous for the same reason: a 12-second clip with four meows in
-// it is four samples once cut-meows.mjs has been at it, and the good field
+// TAGS, NOT TEXT. The first pass searched the text "cat" and took the top 120 of
+// a claimed 5477 CC0 hits. Freesound's text index is fuzzy — "cat" also matches
+// concatenate, catch, category — so the tail of that ranking is mostly not cats,
+// and 120 was nowhere near deep enough to reach the good field recordings.
+// Tags are asserted by the uploader and do not fuzzy-match: 913 CC0 sounds at
+// >=44.1 kHz carry one of these. That is the real pool.
+const TAGS = arg('tags', 'meow OR miaow OR miau OR meowing OR kitten OR cat')
+  .split(/\s+OR\s+/).map((t) => `tag:${t.trim()}`).join(' OR ');
+// The duration window is generous on purpose: a 12-second clip with four meows
+// in it is four samples once cut-meows.mjs has been at it, and the good field
 // recordings are exactly the ones that do not arrive pre-trimmed.
 const [MIN_SEC, MAX_SEC] = arg('dur', '0.2,30').split(',').map(Number);
-const QUERY = arg('q', 'cat');
+const QUERY = arg('q', '');
 
 const API = 'https://freesound.org/apiv2/search/text/';
 const FIELDS = 'id,name,username,pack,license,type,samplerate,bitdepth,channels,duration,previews,url';
@@ -97,9 +102,14 @@ async function search() {
     'license:"Creative Commons 0"',
     `samplerate:[${MIN_RATE} TO *]`,
     `duration:[${MIN_SEC} TO ${MAX_SEC}]`,
+    `(${TAGS})`,
   ].join(' ');
+  // Sorted by downloads, not relevance: with no text query there is nothing for
+  // relevance to score against, and how often a sound has been reused is the
+  // closest thing the API offers to "someone else already judged this usable".
   const params = new URLSearchParams({
-    query: QUERY, filter, fields: FIELDS, page_size: '150', sort: 'score',
+    query: QUERY, filter, fields: FIELDS, page_size: '150',
+    sort: arg('sort', 'downloads_desc'),
   });
   let url = `${API}?${params}`;
   const out = [];
@@ -194,7 +204,7 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-console.log(`searching Freesound for CC0 "${QUERY}", ` +
+console.log(`searching Freesound for CC0 ${TAGS.replace(/tag:/g, '')}, ` +
   `>=${MIN_RATE} Hz, ${MIN_SEC}-${MAX_SEC}s …`);
 const { total, results } = await search();
 const [kept, dropped] = vet(results);
@@ -205,11 +215,11 @@ for (const d of dropped) console.log(`  DROP  ${String(d.license).slice(0, 46).p
 /**
  * Fold this run's records into whatever is already on disk.
  *
- * retrieve() leaves existing wavs alone, so a second run with different search
- * terms downloads only what is new — but it used to write credits.json from that
- * run alone, which silently orphaned every file the first run had fetched. The
- * pool is cumulative; its credits have to be too. Keyed by id, this run wins
- * ties, and anything whose wav has since been deleted by hand drops out.
+ * retrieve() leaves existing wavs alone, so a second run with different --tags
+ * downloads only what is new — but it used to write credits.json from that run
+ * alone, which silently orphaned every file the first run had fetched. The pool
+ * is cumulative; its credits have to be too. Keyed by id, this run wins ties,
+ * and anything whose wav has since been deleted by hand drops out.
  */
 function merge(recs) {
   const byId = new Map();
