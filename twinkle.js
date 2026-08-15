@@ -4,16 +4,16 @@
  * The only burst anchored to the end of the score rather than to a moment in
  * it, and the only one that outlives the music. A star lands for every beat the
  * closing bars have, flares, settles, and then flickers on its own clock until
- * the sky goes out. The whole window is held back a few seconds from the beats
- * that shaped it (plan.js, TWINKLE_AFTER), so the stars arrive as the last note
- * dies and the piece finishes on a screen with no sound under it.
+ * the sky goes out. The whole window is held back to the last bar line the piece
+ * plays (plan.js, TWINKLE_AFTER and barTimes), so the stars arrive under the
+ * final note and the sky outlives it by about a second.
  *
  * They are cats, because everything here is cats. A cat two hundredths of the
  * frame high does not read as a cat and was never going to — what does the
  * work is the behaviour: the flare on the attack, the slow flicker after it,
  * and the fact that they arrive in a rhythm rather than at random. That the
- * rhythm is the closing bars' own, played a few seconds after those bars have
- * gone, is not something an ear can check — it arrives as intent either way.
+ * rhythm is the closing bars' own, played a bar or so later than those bars
+ * were, is not something an ear can check — it arrives as intent either way.
  * Three things make a small bright thing read as a star, and none of them is
  * its outline.
  *

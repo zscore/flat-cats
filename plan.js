@@ -77,6 +77,44 @@ export function scoreEnd(notes) {
   return notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
 }
 
+// The score is in 3/8 the whole way — one time signature, at tick 0, no changes
+// — and tScore counts quarter notes, so a bar is a dotted quarter. notes.json
+// does not carry the meter: tools/midi.mjs reads the tick division and steps
+// over the FF 58 that holds it. So it is written here, against the file it came
+// from, and this is the line to change if the MIDI ever changes.
+const BEATS_PER_BAR = 1.5;
+
+/**
+ * The bar lines, in song seconds. The score says where they are in beats; where
+ * each one falls in the recording comes from the notes' own tScore→t pairs, read
+ * off the two onsets the bar line sits between.
+ *
+ * It stops at the last onset rather than carrying the grid on at the final bar's
+ * rate. Past there the piece is one note ringing and the bars are arithmetic —
+ * nobody is playing them, and a burst that triggers on an imagined downbeat is
+ * triggering on nothing. So the last bar line this returns is the last one the
+ * piece plays: bar 109, at 165.08s, an eighth before the final onset.
+ */
+export function barTimes(notes) {
+  const first = new Map();
+  for (const n of notes) {
+    const beat = Math.round(n.tScore * 1000);
+    if (!(first.get(beat)?.t <= n.t)) first.set(beat, { score: n.tScore, t: n.t });
+  }
+  const pts = [...first.values()].sort((a, b) => a.score - b.score);
+  const last = pts[pts.length - 1].score;
+
+  const bars = [];
+  for (let k = 0, i = 0; k * BEATS_PER_BAR <= last; k++) {
+    const s = k * BEATS_PER_BAR;
+    while (i + 1 < pts.length && pts[i + 1].score <= s) i++;
+    const a = pts[i];
+    const b = pts[Math.min(i + 1, pts.length - 1)];
+    bars.push(b === a ? a.t : a.t + ((b.t - a.t) * (s - a.score)) / (b.score - a.score));
+  }
+  return bars;
+}
+
 /**
  * When the spiral fires, and the beats that populate it — both read off the
  * MIDI rather than picked by hand like the other two.
@@ -162,18 +200,29 @@ export function planSpiral(notes) {
  *
  * That hold is why `from` and `at` are two numbers rather than one. The beats
  * are read off `from`, the moment the grid begins to fade, and carried along
- * with the window; reading them off `at` would light nothing, because the
- * score's last beat is at 165.8s and by then there are none left to read. So the
- * stars keep the closing bars' rhythm without arriving on the bars themselves.
+ * with the window; reading them off `at` would light one beat and twelve stars
+ * rather than six and seventy-two, because `at` is inside the closing bars and
+ * almost all of them are behind it. So the stars keep those bars' rhythm without
+ * arriving on the bars themselves.
  * twinkle.js says the same thing from the drawing side.
+ *
+ * The wait is then snapped to a bar line, because the sky opening is the last
+ * thing the piece does and doing it between two downbeats reads as a slip. That
+ * snap is also a limit: barTimes stops where the played bars do, so the latest
+ * moment the stars can open is bar 109 at 165.08s, and any TWINKLE_AFTER past
+ * about 1.2s lands on that same bar. The knob chooses a bar, not a second — to
+ * get the stars further out than 165.08s something would have to trigger them on
+ * a downbeat nobody plays, and that is the one thing this will not do.
  */
-const TWINKLE_AFTER = 5; // seconds the sky waits after the grid starts to go
+const TWINKLE_AFTER = 2; // seconds the sky waits, before the snap to a bar line
 
 export function planTwinkle(notes, spiralAt) {
   const from = spiralAt + SPIRAL_LENGTH / 2 + CHECKER_LENGTH - CHECKER_FADE;
   const span = scoreEnd(notes) - from;
+  const want = from + TWINKLE_AFTER;
+  const at = barTimes(notes).reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
   return {
-    at: from + TWINKLE_AFTER,
+    at,
     span,
     beats: beatOnsets(notes).filter((s) => s >= from).map((s) => s - from),
   };
