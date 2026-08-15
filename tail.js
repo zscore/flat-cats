@@ -8,7 +8,7 @@
  *   fan     eight more swing out of the same join, the way the fox has them
  *   grow    they lengthen, and nothing else changes while they do
  *   sway    the whole fan swings as one, fading in and out together
- *   weave   finer waves ride on the big ones, three octaves deep
+ *   weave   finer waves ride on the big ones, two octaves deep
  *   branch  every tail forks, and at the peak the forks fork
  *   play    all of it moving at once
  *   cull    half the fan leaves
@@ -27,7 +27,7 @@
 export const BURST_LENGTH = 30; // seconds, start to nothing on screen
 
 const FAN = 9; // the fox's nine
-const OCTAVES = 3; // how many times the waves subdivide
+const OCTAVES = 2; // how many times the waves subdivide
 const FORK = 0.44; // radians a fork leaves its parent by
 const SWAY_HZ = 0.34; // full swings per second
 const BREATH_HZ = 0.14; // fades per second, shared by every tail
@@ -36,6 +36,9 @@ const BREATH_DEPTH = 0.45; // how far down the fade takes them
 // one thing, which is the point. Small values read as a wave travelling across
 // the fan; by about 1.0 it stops looking like one animal.
 const LAG = 0;
+// How far past its far end a section is drawn, as a fraction of its length. The
+// ends meet exactly without it; this is only so the seam is under fur.
+const OVERLAP = 0.16;
 const TAU = Math.PI * 2;
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -68,7 +71,8 @@ function score(s) {
     // How far the tip swings, as a fraction of the tail's own length.
     swing: (0.10 * ramp(s, 6.0, 9.0) + 0.12 * weave) * (1 - 0.6 * home),
     // Waves along one tail, and how many times they subdivide. One octave is a
-    // swaying tail; three is the weave, with detail at three scales at once.
+    // swaying tail; two is the weave. A third octave was a wave finer than the
+    // tail sections riding it, so it made no shape they could follow.
     waves: 0.8 + 1.4 * weave * (1 - home),
     octaves: 1 + (OCTAVES - 1) * weave * (1 - home),
     lag: LAG * (1 - home),
@@ -128,6 +132,35 @@ function walk(p) {
   return pts;
 }
 
+/**
+ * The arc position at which the centreline is `d` pixels from the point at arc
+ * `s` — as the crow flies, not along the curve. This is what a pair of compasses
+ * does, and it is the whole of the fix for sections that did not touch: stepping
+ * by arc length instead lays a rigid section across a bend and lets its far end
+ * leave the curve entirely, by seven times its own half-thickness in the middle
+ * of the weave, so the next section starts somewhere else.
+ *
+ * Scanned rather than bisected from the start: the distance from `s` is not
+ * monotonic along a curve that doubles back, so only the first crossing is the
+ * right one. Within the one sample that crosses, bisection is safe.
+ */
+function advance(pts, s, d) {
+  const a = at(pts, s);
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].s <= s || Math.hypot(pts[i].x - a.x, pts[i].y - a.y) < d) continue;
+    let lo = Math.max(s, pts[i - 1].s);
+    let hi = pts[i].s;
+    for (let k = 0; k < 12; k++) {
+      const mid = (lo + hi) / 2;
+      const m = at(pts, mid);
+      if (Math.hypot(m.x - a.x, m.y - a.y) < d) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  }
+  return pts[pts.length - 1].s; // the curve runs out before `d` does
+}
+
 /** Where the centreline is, and which way it points, `s` pixels along it. */
 function at(pts, s) {
   let i = 1;
@@ -149,11 +182,16 @@ function at(pts, s) {
  * One tail, made of tails: real cat tails from the set, laid head to tail
  * along the centreline, each turned to face the way the big tail is going.
  *
- * They are placed by distance rather than by parameter, and each keeps its own
- * aspect ratio, so a stubby tail takes a short bite of the curve and a long one
- * takes a long bite. Squeezing them all into equal slots would flatten out the
- * thing that makes this worth doing — that they are visibly seven different
- * cats. They overlap by a quarter to hide the joins.
+ * Each section spans from one point on the centreline to the next, both of them
+ * on the curve, so its root sits exactly where the last one's tip did and the
+ * chain cannot come apart. It follows the curve at the scale a rigid tail can:
+ * a wave finer than one section is stepped over rather than followed, which is
+ * what a real tail of that stiffness would do.
+ *
+ * The step is each tail's own length, so a stubby tail takes a short bite and a
+ * long one takes a long bite. Squeezing them into equal slots would flatten out
+ * the thing that makes this worth doing — that they are visibly seven different
+ * cats.
  */
 function ribbon(ctx, p, pts) {
   const total = pts[pts.length - 1].s;
@@ -165,18 +203,26 @@ function ribbon(ctx, p, pts) {
     const img = p.tails[(n * 3 + p.seq * 5 + 1) % p.tails.length];
     const h = 2 * halfWidth(here.u, p);
     const w = h * (img.width / img.height);
-    const step = w * 0.75;
-    // Each piece is drawn centred half a step ahead, so without this the chain
-    // finishes a whole tail's length past the end of the curve it follows.
-    if (s + w > total) break;
+    if (w < 1) break; // the taper has run out
+
+    const next = advance(pts, s, w);
+    const end = at(pts, next);
+    const chord = Math.hypot(end.x - here.x, end.y - here.y);
+    // Short of a whole tail means the curve ran out mid-section. The first one
+    // is drawn anyway, scaled down whole — that is a fork just starting, and
+    // dropping it is what used to make forks pop into being at full size. Later
+    // ones are at the thin end, where stopping short does not show.
+    if (n && chord < 0.34 * w) break;
+    const draw = chord * (1 + OVERLAP);
+    const tall = h * Math.min(1, draw / w);
 
     ctx.save();
-    ctx.translate(here.x + Math.cos(here.angle) * (step / 2), here.y + Math.sin(here.angle) * (step / 2));
-    ctx.rotate(here.angle);
+    ctx.translate(here.x, here.y);
+    ctx.rotate(Math.atan2(end.y - here.y, end.x - here.x));
     if ((n + p.seq) % 2) ctx.scale(1, -1); // vary which way the fur curls
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.drawImage(img, 0, -tall / 2, draw, tall);
     ctx.restore();
-    s += step;
+    s = next;
   }
 }
 
