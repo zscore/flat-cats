@@ -131,10 +131,13 @@ function sweep(ctx, W, H, s, cats, { dur, dir, cell, radial, gain = 1, hold = HO
   }
 }
 
-// How long the ground takes to go at the end. Exported because cats.js starts
-// the stars off it — "once the grid begins to fade" is a time in the piece, and
-// this is the only place that knows when it is.
-export const FADE_FOR = 1.2;
+// How long the ground takes to go at the end, and with it the whole handover to
+// the stars: cats.js opens them at exactly this far before the ground ends, so
+// the grid starts fading on the frame the first star lands and the two cross
+// over rather than following one another. Lengthening this lengthens the
+// overlap. It is long for a fade because it is not really a fade, it is the
+// last thing the piece does with two elements at once.
+export const FADE_FOR = 3.2;
 
 /** How present the ground is, 0…1 — its own fade, in and then out. */
 function ground(since) {

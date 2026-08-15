@@ -197,33 +197,25 @@ function beatOnsets(notes) {
   return [...first.values()].sort((a, b) => a - b);
 }
 
-/**
- * When the stars run, and the beats that light them. This is the one burst
- * anchored to the end of the score rather than to a moment chosen inside it —
- * the piece closes on it, so it hangs off the last note rather than off a
- * number typed here. Move the score and it follows.
- */
 /** When the last note stops sounding — the end of the piece, not of the file. */
 function scoreEnd(notes) {
   return notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
 }
 
 /**
- * When the stars run, and the beats that light them. They come up as the
- * lozenge ground begins to go and hold until the music stops, so both ends are
- * read off something rather than typed: the start off the grid's own fade, the
- * finish off the last note.
+ * When the stars run, and the beats that light them. They open on the frame the
+ * lozenge ground starts to fade and hold until the music stops, so neither end
+ * is a number typed here: the start is the grid's own fade, which checkers.js
+ * owns, and the finish is the last note.
  *
- * The lead is the awkward part and is worth stating. Starting exactly on the
- * grid's fade would give the stars no beats at all — the score's last beat is
- * at 165.8s and the fade begins after it — so they open this far ahead of it,
- * which is the least that still leaves something for the MIDI to trigger.
+ * That the two share a moment is the whole arrangement — the grid going out and
+ * the stars coming up are one handover, not two events near each other — and
+ * making CHECKER_FADE long enough to be that handover is also what leaves the
+ * stars any beats to trigger on. The score's last beat is at 165.8s, so a short
+ * fade would put their start after every beat in the piece.
  */
-const STAR_LEAD = 2.0;
-
 function planTwinkle(notes, spiralAt) {
-  const fades = spiralAt + SPIRAL_LENGTH / 2 + CHECKER_LENGTH - CHECKER_FADE;
-  const at = fades - STAR_LEAD;
+  const at = spiralAt + SPIRAL_LENGTH / 2 + CHECKER_LENGTH - CHECKER_FADE;
   const span = scoreEnd(notes) - at;
   return { at, span, beats: beatOnsets(notes).filter((s) => s >= at).map((s) => s - at) };
 }
