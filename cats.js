@@ -24,6 +24,7 @@ import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
 import { riverBurst, BURST_LENGTH as RIVER_LENGTH } from './river.js';
 import { checkerBurst } from './checkers.js';
 import { twinkleBurst, BURST_LENGTH as TWINKLE_LENGTH } from './twinkle.js';
+import { moonBurst } from './moon.js';
 
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
 const EDGE = 0.08; // keeps a cat's centre off the left and right edges
@@ -42,6 +43,10 @@ const MAX_LIFE = 2.5; // the longest note here is 10.7s; nobody wants that on sc
 const BURSTS = [20];
 const FACE_BURSTS = [50];
 const RIVER_BURSTS = [72];
+// The moon is not a burst and does not take a turn. It comes up at the halfway
+// mark and is still there at the end, and the river, the spiral, the lozenges
+// and the stars all happen under it without knowing it is there.
+const MOON_AT = 85;
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
@@ -224,7 +229,11 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   const { width: W, height: H } = canvas;
   ctx.clearRect(0, 0, W, H);
 
-  // The ground goes down before anything else. It runs off the spiral's clock,
+  // Sky first, under everything, including the ground — the lozenges are a
+  // lattice with black between them, so the moon reads through the gaps.
+  moonBurst(ctx, W, H, t - MOON_AT, cats);
+
+  // The ground goes down next. It runs off the spiral's clock,
   // starting halfway through it, so the two are one gesture and not two that
   // happen to overlap.
   const groundAt = t - spiral.at - SPIRAL_LENGTH / 2;
