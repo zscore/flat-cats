@@ -26,6 +26,10 @@
  * are both in one image.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+// STEP is course.js's integration step, not one of the river's shape constants,
+// so it is imported rather than read back out of the source like the rest: the
+// rebuild below is an independent check on the shapes, not on the sampling.
+import { STEP } from '../course.js';
 
 const river = await import('../river.js');
 const src = readFileSync(new URL('../river.js', import.meta.url), 'utf8');
@@ -39,7 +43,7 @@ const num = (name) => {
   return eval(m[1]);
 };
 const K = Object.fromEntries(
-  ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'STEP', 'WAVE_ARC', 'WAVE_AMP',
+  ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'WAVE_ARC', 'WAVE_AMP',
    'WAVE_LEN', 'BLEND', 'TEETH', 'RISER', 'RUN', 'ROUND', 'SNAKE_ARC', 'SNAKE_AMP', 'SNAKE_LEN',
    'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
    'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD']
@@ -65,52 +69,52 @@ const heading = (u) => {
     + loose * K.SNAKE_AMP * Math.sin((TAU * (u - SN_AT)) / K.SNAKE_LEN);
 };
 
-const n = Math.ceil(LENGTH / K.STEP);
+const n = Math.ceil(LENGTH / STEP);
 const xs = [], ys = [], ths = [];
 {
   let x = 0, y = 0;
   for (let i = 0; i <= n; i++) {
-    xs.push(x); ys.push(y); ths.push(heading(i * K.STEP));
-    x += Math.cos(ths[i]) * K.STEP;
-    y += Math.sin(ths[i]) * K.STEP;
+    xs.push(x); ys.push(y); ths.push(heading(i * STEP));
+    x += Math.cos(ths[i]) * STEP;
+    y += Math.sin(ths[i]) * STEP;
   }
 }
-const base = ys[Math.round(SQ_AT / K.STEP)];
+const base = ys[Math.round(SQ_AT / STEP)];
 const camY = base - K.DROP;
 const x0 = Math.min(...xs), x1 = Math.max(...xs);
 
 // ------------------------------------------------------- the counter-river --
 
 function bessel0(a) { let t = 1, s = 1; for (let k = 1; k < 12; k++) { t *= -(a * a / 4) / (k * k); s += t; } return s; }
-const snX = xs[Math.round(SN_AT / K.STEP)], snY = ys[Math.round(SN_AT / K.STEP)];
+const snX = xs[Math.round(SN_AT / STEP)], snY = ys[Math.round(SN_AT / STEP)];
 const bArc = (x1 - snX + K.B_LEAD) / bessel0(K.B_AMP);
-const bn = Math.ceil(bArc / K.STEP);
+const bn = Math.ceil(bArc / STEP);
 const bxs = [], bys = [];
 {
   let x = x1 + K.B_LEAD, y = snY + K.B_DROP;
   for (let i = 0; i <= bn; i++) {
     bxs.push(x); bys.push(y);
-    const th = Math.PI + K.B_AMP * Math.sin((TAU * (i * K.STEP + K.B_PHASE)) / K.B_LEN);
-    x += Math.cos(th) * K.STEP; y += Math.sin(th) * K.STEP;
+    const th = Math.PI + K.B_AMP * Math.sin((TAU * (i * STEP + K.B_PHASE)) / K.B_LEN);
+    x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
   }
 }
 
 // The under-river, built the same way: it starts past the end of the teeth and
 // runs back past the river's own source.
-const sqX = xs[Math.round(SQ_OUT / K.STEP)];
+const sqX = xs[Math.round(SQ_OUT / STEP)];
 const cArc = (sqX + K.C_LEAD - (x0 - K.C_LEAD)) / bessel0((K.C_TIGHT + K.C_OPEN) / 2);
-const cn = Math.ceil(cArc / K.STEP);
+const cn = Math.ceil(cArc / STEP);
 const cxs = [], cys = [];
 {
   let x = sqX + K.C_LEAD, y = base + K.C_LOW;
   for (let i = 0; i <= cn; i++) {
     cxs.push(x); cys.push(y);
-    const u = i * K.STEP;
+    const u = i * STEP;
     const open = ramp(u, K.C_AT, K.C_AT + K.C_WIDE);
     const amp = K.C_TIGHT + (K.C_OPEN - K.C_TIGHT) * open;
     const lean = (K.C_RISE / K.C_WIDE) * (ramp(u, K.C_AT, K.C_AT + 0.25) - ramp(u, K.C_AT + K.C_WIDE - 0.25, K.C_AT + K.C_WIDE));
     const th = Math.PI + amp * Math.sin((TAU * (u + K.C_PHASE)) / K.C_LEN) + lean;
-    x += Math.cos(th) * K.STEP; y += Math.sin(th) * K.STEP;
+    x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
   }
 }
 
@@ -168,8 +172,8 @@ function selfIntersections(step = 6) {
 // clears it if the course gets above it — remember y grows downward.
 const top = camY - 0.5;
 let above = 0;
-for (let i = Math.round(SQ_AT / K.STEP); i < Math.round(SQ_OUT / K.STEP); i++) if (ys[i] < top) above++;
-const highest = Math.min(...ys.slice(Math.round(SQ_AT / K.STEP), Math.round(SQ_OUT / K.STEP)));
+for (let i = Math.round(SQ_AT / STEP); i < Math.round(SQ_OUT / STEP); i++) if (ys[i] < top) above++;
+const highest = Math.min(...ys.slice(Math.round(SQ_AT / STEP), Math.round(SQ_OUT / STEP)));
 const clears = (top - highest).toFixed(2); // frame-heights of riser past the top edge
 
 // -------------------------------------------------------------------- wide --
@@ -181,7 +185,7 @@ const inside = ((K.LANES - 1) / 2) * K.LANE;
 let tightest = Infinity;
 for (let i = 1; i <= n; i++) {
   let d = Math.abs(ths[i] - ths[i - 1]);
-  if (d > 1e-9) tightest = Math.min(tightest, K.STEP / d); // radius = ds/dθ
+  if (d > 1e-9) tightest = Math.min(tightest, STEP / d); // radius = ds/dθ
 }
 
 // ------------------------------------------------------------------ steady --

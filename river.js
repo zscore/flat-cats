@@ -21,13 +21,11 @@
  *
  * Three things worth writing down, because they are what the module is.
  *
- * FIRST: the river is defined by its *heading*, not its position. θ(u) is the
- * direction it points at each distance u along itself, and the points come from
- * integrating that — step du in the direction θ, over and over. Because every
- * step is the same length, u is arc length, which is what makes the cats easy:
- * evenly spaced in u is evenly spaced along the river, through corners and all.
- * In the heading domain the three stretches are one expression, differing only
- * in what they put in it:
+ * FIRST: the river is defined by its *heading*, not its position — θ(u), the
+ * direction it points at each distance u along itself, integrated into points
+ * by course.js, which is where that machinery and why it gives arc length live.
+ * What is left here is the shapes, and in the heading domain the three stretches
+ * are one expression differing only in what they put in it:
  *
  *   wave     θ = 0.85·sin(2πu/1.6)      a sine-generated curve, shallow
  *   square   θ steps between 0 and ∓π/2  exact right angles, because a heading
@@ -86,6 +84,7 @@
  */
 
 import { swells } from './pulse.js';
+import { STEP, makeCourse, at, bessel0 } from './course.js';
 
 // Everything here is in frame-heights: 1.0 is the height of the window. Widths
 // come from the aspect at draw time, so the river is the same river on any
@@ -98,7 +97,6 @@ const LANES = 3; // cats abreast — the river is three cats wide
 const LANE = 0.055; // and this is the gap between those three, across the flow
 const DROP = 0.18; // how far below the river's runs the frame centres itself
 const EDGE_FADE = 0.6; // arc length over which cats fade in at the source and out at the mouth
-const STEP = 1 / 96; // integration step; also the finest corner the curve can hold
 const NOMINAL_ASPECT = 16 / 9; // only used to derive BURST_LENGTH, which needs a width
 
 const WAVE_ARC = 2.2; // how much river the opening wave gets
@@ -220,33 +218,9 @@ function heading(u) {
   );
 }
 
-/**
- * Integrate a heading into a course, once, at load. It depends on nothing but
- * the constants above — no canvas, no aspect — so the courses are one fixed
- * world and every frame is a window onto it.
- */
-function makeCourse(θ, length, ox = 0, oy = 0, lanes = LANES) {
-  const n = Math.ceil(length / STEP);
-  const xs = new Float64Array(n + 1);
-  const ys = new Float64Array(n + 1);
-  const ths = new Float64Array(n + 1);
-  let x = ox;
-  let y = oy;
-  let x0 = Infinity;
-  let x1 = -Infinity;
-  for (let i = 0; i <= n; i++) {
-    xs[i] = x;
-    ys[i] = y;
-    ths[i] = θ(i * STEP);
-    if (x < x0) x0 = x;
-    if (x > x1) x1 = x;
-    x += Math.cos(ths[i]) * STEP;
-    y += Math.sin(ths[i]) * STEP;
-  }
-  return { xs, ys, ths, n, x0, x1, length, lanes };
-}
-
-const RIVER = makeCourse(heading, LENGTH);
+// The three courses, integrated once, at load. course.js does the integrating;
+// what is here is only which headings, how much of each, and where each starts.
+const RIVER = makeCourse(heading, LENGTH, 0, 0, LANES);
 // The runs of the square stretch are the river's floor, and the frame hangs its
 // centre a little under them so the risers have somewhere to leave to.
 const BASE = RIVER.ys[Math.round(SQ_AT / STEP)];
@@ -293,34 +267,6 @@ const COURSES = [RIVER, COUNTER, UNDER];
 // As long as it takes to pan the whole course, plus a frame's width at each end
 // so the river arrives from off-screen and leaves the same way.
 export const BURST_LENGTH = Math.round((RIVER.x1 - RIVER.x0 + NOMINAL_ASPECT) / PAN);
-
-/**
- * How far a sine-generated curve advances along its own axis per unit of arc —
- * the Bessel function J₀ of the heading amplitude, which is the mean of
- * cos(a·sin θ). Only needed to work out how much arc the counter-river needs to
- * cover a given width, so a short series is plenty.
- */
-function bessel0(a) {
-  let term = 1;
-  let sum = 1;
-  for (let k = 1; k < 12; k++) {
-    term *= -((a * a) / 4) / (k * k);
-    sum += term;
-  }
-  return sum;
-}
-
-/** A course's point and heading at distance `u`, interpolated between samples. */
-function at(course, u) {
-  const f = clamp01(u / course.length) * course.n;
-  const i = Math.min(course.n - 1, Math.floor(f));
-  const t = f - i;
-  return {
-    x: course.xs[i] + (course.xs[i + 1] - course.xs[i]) * t,
-    y: course.ys[i] + (course.ys[i + 1] - course.ys[i]) * t,
-    th: course.ths[i],
-  };
-}
 
 /**
  * Draw the river. `since` is seconds since it was triggered — negative or past
