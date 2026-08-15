@@ -166,6 +166,31 @@ const C_WIDE = 1.5; // and how much arc it takes to do it
 const C_RISE = 0.1;
 const C_LEAD = 0.9;
 
+// The double squiggle. Under the teeth the course above is doing right angles
+// and this one is nearly straight for thirty seconds of frame, which is a long
+// time to watch a line. So one stretch of it tightens: a quick bend, and a
+// counter-bend at twice the rate riding on each one, laid *over* the long swing
+// rather than replacing it. Replacing it was the first attempt and it moved the
+// whole course 0.038 down and put the cats through the bottom of the frame — a
+// sine switched off mid-phase does not return to its own centre line, it stops
+// wherever it was and stays there.
+//
+// Short is what makes it affordable. A sine-generated curve swings about
+// amp·len/2π across its axis, so at a third the wavelength the same excursion
+// buys three times the bends, and there is very little room to spend: the
+// channel here is 0.053 of clear water up to the river and 0.036 down to the
+// edge of the frame. Both wavelengths divide C_ZIG_ARC a whole number of times,
+// which is what keeps the squiggle from displacing the course it sits on.
+const C_ZIG_AT = 4.9; // where along the under-river the tight stretch begins
+const C_ZIG_ARC = 2.0; // and how much arc it lasts — about eight seconds of frame
+const C_ZIG_IN = 0.4; // arc it takes to come on, and to go off again
+const C_ZIG_AMP = 0.3; // heading amplitude of the quick bend
+const C_KINK = 0.24; // and of the counter-bend riding on it
+// The channel is not centred on the course: 0.053 above, 0.036 below. So the
+// window is pushed this far *down* it, which is the difference between the two
+// margins ending up 0.026/0.024 and 0.019/0.030.
+const C_ZIG_DIP = 0.008;
+
 const TAU = Math.PI * 2;
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -285,7 +310,7 @@ export function riverBurst(ctx, W, H, since, cats, beats = []) {
   const camX = RIVER.x0 - 0.5 * (W / H) - CAT_H + PAN * since;
   const camY = BASE - DROP;
   const frame = { camX, camY, halfW: 0.5 * (W / H), pan: PAN };
-  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP);
+  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP, EDGE_FADE);
 
   ctx.save();
   ctx.globalAlpha = alpha;

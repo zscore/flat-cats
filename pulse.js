@@ -15,8 +15,14 @@
  * actually on screen is found by binary search — every course's x is monotonic,
  * the river's rising and the counter-currents' falling, so the visible part is
  * always one contiguous run — and a few hashed candidates inside it are tried
- * until one is in frame vertically too. If none is, the hit passes without a
- * swell rather than swelling something nobody can see.
+ * until one is in frame vertically too. If none is, the next course is asked,
+ * and only when all three have nothing does the hit pass without a swell.
+ *
+ * Visible for the whole swell, not just at the hit: the cat swims on and the
+ * frame pans on while it grows, so a candidate has to be in shot at both ends
+ * of the pulse. Both halves of that were measured, and both were losing notes —
+ * asking one course only dropped 32% of the score, and testing the hit alone
+ * left another 6% growing off the edge of the frame.
  *
  * CONTINUOUS. The envelope is smoothstep either side of the peak, so it leaves
  * zero, arrives at the peak, and returns to zero with no corner at any of the
@@ -33,7 +39,11 @@
 export const PULSE = 1.0; // seconds, the whole swell — up, over, and back
 const ATTACK = 0.18; // of which this much is the way up
 export const MAX_SWELL = 0.6; // how much bigger at the peak: 1.6× its own size
-const TRIES = 8; // hashed candidates per hit before giving the hit up
+// Hashed candidates per hit before giving the hit up. Swept: 8 drops six beats
+// of the score that 16 keeps, and 32 keeps no more than 16 does — past here the
+// misses are hits with nothing to choose from rather than hits that were
+// unlucky, and more tries cannot help those.
+const TRIES = 16;
 const INSET = 0.06; // keep the choice this far inside the frame, so a swelling
 // cat grows into the picture rather than half off the edge of it
 
@@ -69,22 +79,43 @@ function seek(xs, n, rising, target) {
   return lo;
 }
 
+/** Is sample `i` of `course` inside a frame centred on (camX, camY)? */
+function inFrame(course, i, camX, camY, halfW) {
+  return Math.abs(course.xs[i] - camX) <= halfW - INSET && Math.abs(course.ys[i] - camY) <= 0.5 - INSET;
+}
+
 /**
  * A place on `course` that is on screen, or null if this course has nothing in
  * frame worth picking. Returns the distance along the course, not an index.
+ *
+ * On screen for the whole pulse, not just at the hit. The cat goes on swimming
+ * at `swim` per second while the frame goes on panning at `pan`, and on a
+ * counter-current those add rather than cancel — better than half a frame-
+ * height of travel in the second a swell lasts. Testing the hit alone put 6% of
+ * the score on a cat that had left the frame by the time it finished growing.
  */
-function somewhereVisible(course, camX, camY, halfW, seed) {
-  const { xs, ys, n } = course;
+function somewhereVisible(course, camX, camY, halfW, seed, swim, pan, fade) {
+  const { xs, n } = course;
   const rising = xs[n] > xs[0];
   const a = seek(xs, n, rising, camX - halfW + INSET);
   const b = seek(xs, n, rising, camX + halfW - INSET);
-  const lo = Math.min(a, b);
-  const hi = Math.max(a, b);
+  const step = course.length / n; // arc length one sample covers
+  // How far along its own samples the cat gets before the swell is over.
+  const ahead = Math.round((swim * PULSE) / step);
+  // Clear of the source and the mouth, where the course fades its cats in and
+  // out, and still clear at the end of the pulse — the cat swims towards the
+  // mouth while it grows. A cat inside that fade is drawn at a fraction of the
+  // opacity its neighbours have, so swelling it is invisible beside them: at
+  // one beat 42s into the burst the choosing took a cat at 2% opacity with 185
+  // fully lit ones on screen. Being in the frame was never the whole of it.
+  const lo = Math.max(Math.min(a, b), Math.ceil(fade / step));
+  const hi = Math.min(Math.max(a, b), Math.floor((course.length - fade) / step) - ahead);
   if (hi <= lo) return null;
 
   for (let t = 0; t < TRIES; t++) {
     const i = lo + Math.floor(rand(seed + t * 7919) * (hi - lo));
-    if (Math.abs(ys[i] - camY) > 0.5 - INSET) continue; // off the top or bottom
+    if (!inFrame(course, i, camX, camY, halfW)) continue;
+    if (!inFrame(course, Math.min(n, i + ahead), camX + pan * PULSE, camY, halfW)) continue;
     return (i / n) * course.length;
   }
   return null;
@@ -98,7 +129,7 @@ function somewhereVisible(course, camX, camY, halfW, seed) {
  * scale, empty where a course has nothing swelling — which is most of them most
  * of the time, since a hit picks exactly one cat.
  */
-export function swells(since, beats, courses, frame, flow, gap) {
+export function swells(since, beats, courses, frame, flow, gap, fade) {
   const out = courses.map(() => null);
   if (!beats.length) return out;
 
@@ -110,12 +141,24 @@ export function swells(since, beats, courses, frame, flow, gap) {
     const scale = swell(age);
     if (scale <= 0) continue;
 
-    const c = Math.floor(rand(i * 31 + 11) * courses.length);
-    const course = courses[c];
+    // The hashed course is where the search starts, not where it stops. At most
+    // moments in the burst one or two of the three are entirely out of shot —
+    // the river arrives late, the under-river has long gone by then — so a hit
+    // that asked its own course and gave up threw away a third of the score
+    // against a frame with two hundred cats in it. Starting hashed keeps the
+    // choice unbiased when they are all in view.
+    const first = Math.floor(rand(i * 31 + 11) * courses.length);
     // Chosen against the frame as it was at the hit, not as it is now: the cat
     // that swells is the one that was in shot when the note was struck.
-    const u = somewhereVisible(course, frame.camX - frame.pan * age, frame.camY, frame.halfW, i * 131 + 3);
+    const camX = frame.camX - frame.pan * age;
+    let c = 0;
+    let u = null;
+    for (let j = 0; j < courses.length && u === null; j++) {
+      c = (first + j) % courses.length;
+      u = somewhereVisible(courses[c], camX, frame.camY, frame.halfW, i * 131 + 3, flow, frame.pan, fade);
+    }
     if (u === null) continue;
+    const course = courses[c];
 
     // Invert the bead's own closed form for k: bead k sits at
     // (k·gap + flow·t) mod length, so the bead that was at u when the hit
