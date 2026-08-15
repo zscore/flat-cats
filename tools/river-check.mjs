@@ -47,12 +47,20 @@ const num = (name) => {
   if (!m) throw new Error(`no constant ${name} in river.js or currents.js`);
   return eval(m[1]);
 };
+// SQUIGGLES is a table rather than a scalar, so it is read out whole and
+// evaluated the same way — still the module's own source, not a copy of it.
+const arr = (name) => {
+  const m = src.match(new RegExp(`^const ${name} = (\\[[\\s\\S]*?\\n\\]);`, 'm'));
+  if (!m) throw new Error(`no table ${name} in river.js or currents.js`);
+  return eval(m[1]);
+};
+const SQUIGGLES = arr('SQUIGGLES');
+
 const K = Object.fromEntries(
   ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'WAVE_ARC', 'WAVE_AMP',
    'WAVE_LEN', 'BLEND', 'TEETH', 'RISER', 'RUN', 'ROUND', 'SNAKE_ARC', 'SNAKE_AMP', 'SNAKE_LEN',
    'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
-   'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD',
-   'C_ZIG_AT', 'C_ZIG_ARC', 'C_ZIG_IN', 'C_ZIG_AMP', 'C_KINK', 'C_ZIG_DIP']
+   'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD']
     .map((n) => [n, num(n)]),
 );
 const TOOTH = 2 * K.RISER + 2 * K.RUN;
@@ -108,7 +116,12 @@ const bxs = [], bys = [];
 // The under-river, built the same way: it starts past the end of the teeth and
 // runs back past the river's own source.
 const sqX = xs[Math.round(SQ_OUT / STEP)];
-const zLen = K.C_ZIG_ARC / 4, zEnd = K.C_ZIG_AT + K.C_ZIG_ARC, zMid = K.C_ZIG_AT + K.C_ZIG_ARC / 2;
+const squiggle = (u, s) => {
+  if (u <= s.at || u >= s.at + s.arc) return 0;
+  const p = (u - s.at) / s.arc, len = s.arc / s.bends;
+  return -(s.dip * Math.PI / s.arc) * Math.sin(TAU * p)
+    + ((1 - Math.cos(TAU * p)) / 2) * (s.amp * Math.sin(TAU * u / len) - s.kink * Math.sin(TAU * u / (len / 2)));
+};
 const cArc = (sqX + K.C_LEAD - (x0 - K.C_LEAD)) / bessel0((K.C_TIGHT + K.C_OPEN) / 2);
 const cn = Math.ceil(cArc / STEP);
 const cxs = [], cys = [];
@@ -120,11 +133,8 @@ const cxs = [], cys = [];
     const open = ramp(u, K.C_AT, K.C_AT + K.C_WIDE);
     const amp = K.C_TIGHT + (K.C_OPEN - K.C_TIGHT) * open;
     const lean = (K.C_RISE / K.C_WIDE) * (ramp(u, K.C_AT, K.C_AT + 0.25) - ramp(u, K.C_AT + K.C_WIDE - 0.25, K.C_AT + K.C_WIDE));
-    const zig = ramp(u, K.C_ZIG_AT, K.C_ZIG_AT + K.C_ZIG_IN) - ramp(u, zEnd - K.C_ZIG_IN, zEnd);
-    const dip = (-2 * K.C_ZIG_DIP / K.C_ZIG_ARC)
-      * (ramp(u, K.C_ZIG_AT - K.C_ZIG_IN, K.C_ZIG_AT) - 2 * ramp(u, zMid - K.C_ZIG_IN, zMid + K.C_ZIG_IN) + ramp(u, zEnd, zEnd + K.C_ZIG_IN));
-    const th = Math.PI + amp * Math.sin((TAU * (u + K.C_PHASE)) / K.C_LEN) + lean + dip
-      + zig * (K.C_ZIG_AMP * Math.sin((TAU * u) / zLen) - K.C_KINK * Math.sin((TAU * u) / (zLen / 2)));
+    const th = Math.PI + amp * Math.sin((TAU * (u + K.C_PHASE)) / K.C_LEN) + lean
+      + SQUIGGLES.reduce((a, s) => a + squiggle(u, s), 0);
     x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
   }
 }

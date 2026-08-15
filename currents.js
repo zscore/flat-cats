@@ -77,62 +77,74 @@ const C_WIDE = 1.5; // and how much arc it takes to do it
 const C_RISE = 0.1;
 const C_LEAD = 0.9;
 
-// The double squiggle. Under the teeth the course above is doing right angles
-// and this one is nearly straight for thirty seconds of frame, which is a long
-// time to watch a line. So one stretch of it tightens: a quick bend, and a
-// counter-bend at twice the rate riding on each one, laid *over* the long swing
-// rather than replacing it. Replacing it was the first attempt and it moved the
-// whole course 0.038 down and put the cats through the bottom of the frame — a
-// sine switched off mid-phase does not return to its own centre line, it stops
-// wherever it was and stays there.
+// The squiggles. Under the teeth the course above is doing right angles and this
+// one is nearly straight for thirty seconds of frame, which is a long time to
+// watch a line. So it tightens, in windows, and this is the table of them.
 //
-// Short is what makes it affordable. A sine-generated curve swings about
-// amp·len/2π across its axis, so at a third the wavelength the same excursion
-// buys three times the bends, and there is very little room to spend: the
-// channel here is 0.053 of clear water up to the river and 0.036 down to the
-// edge of the frame. Both wavelengths divide C_ZIG_ARC a whole number of times,
-// so the bends themselves leave the course where they found it; the ramps at
-// either end still cost it 0.012, which is measured rather than assumed.
-const C_ZIG_AT = 4.9; // where along the under-river the tight stretch begins
-const C_ZIG_ARC = 2.0; // and how much arc it lasts — about eight seconds of frame
-const C_ZIG_IN = 0.4; // arc it takes to come on, and to go off again
-const C_ZIG_AMP = 0.3; // heading amplitude of the quick bend
-const C_KINK = 0.24; // and of the counter-bend riding on it
-// The channel is not centred on the course: 0.053 above, 0.036 below. So the
-// window is pushed this far *down* it, which is the difference between the two
-// margins ending up 0.026/0.024 and 0.019/0.030.
-const C_ZIG_DIP = 0.008;
+// Each window is a raised cosine over its own arc with a whole number of bends
+// inside it, and that is the property the whole arrangement rests on: every
+// component of the squiggle then has an integer number of periods across the
+// window, so the window *closes* — it hands the course back at the heading and
+// the height it borrowed it at. The first draft windowed with smoothstep ramps
+// instead and did not close. With one squiggle the drift was 0.012 and easy to
+// miss; the moment a second one went in upstream, it moved the first one 0.04
+// across its channel and pushed it into the river above.
+//
+// The bends are laid *over* the long swing rather than replacing it. Replacing
+// it was the first attempt and it moved the whole course 0.038 down and put the
+// cats through the bottom of the frame — a sine switched off mid-phase does not
+// return to its own centre line, it stops wherever it was and stays there.
+//
+// Short is what makes any of this affordable. A sine-generated curve swings
+// about amp·len/2π across its axis, so at half the wavelength the same excursion
+// buys twice the bends, and there is very little room to spend: the channel here
+// is around 0.05 of clear water up to the river and 0.04 down to the edge of the
+// frame. What each column does:
+//
+//   at, arc   where the window starts along the under-river, and how long it is
+//   bends     how many quick bends fit in it — arc/bends is the wavelength, and
+//             an integer here is what closes the window
+//   amp       how hard the quick bend turns
+//   kink      the counter-bend riding on it, at twice the rate and the other way
+//   dip       how far the window is pushed *down* its channel. The channel is
+//             not centred on the course, so a squiggle hung straight off it
+//             swings into the river on one side before it has used the room on
+//             the other.
+const SQUIGGLES = [
+  { at: 4.9, arc: 2.0, bends: 4, amp: 0.42, kink: 0.33, dip: 0.002 },
+];
 
-// Four whole bends across the window, and eight of the counter-bend. Derived
-// rather than typed: a wavelength that did not divide the window would leave
-// the course displaced by however much of a bend was left over.
-const C_ZIG_LEN = C_ZIG_ARC / 4;
-const C_ZIG_END = C_ZIG_AT + C_ZIG_ARC;
-const C_ZIG_MID = C_ZIG_AT + C_ZIG_ARC / 2;
+/**
+ * How far a squiggle bends the course at `u`. Zero outside its window, and zero
+ * net across it, which is the point — see SQUIGGLES above.
+ */
+function squiggle(u, s) {
+  if (u <= s.at || u >= s.at + s.arc) return 0;
+  const p = (u - s.at) / s.arc;
+  const len = s.arc / s.bends;
+  // Down over the first half of the window and back up over the second, so the
+  // course is level again at both ends. Negative because a heading above π
+  // lifts: y grows downward.
+  const dip = -((s.dip * Math.PI) / s.arc) * Math.sin(TAU * p);
+  const w = (1 - Math.cos(TAU * p)) / 2;
+  return dip + w * (s.amp * Math.sin((TAU * u) / len) - s.kink * Math.sin((TAU * u) / (len / 2)));
+}
 
 /**
  * The under-river's heading. Three things happen along it, each in its own
  * window: the swing opens from C_TIGHT to C_OPEN, a lean lifts the whole course
  * into the taller room that made the wider swing possible in the first place,
- * and earlier than either the course tightens into the double squiggle.
+ * and earlier than either it tightens into each of the SQUIGGLES in turn.
  */
 function under(u) {
   const open = ramp(u, C_AT, C_AT + C_WIDE);
   const amp = C_TIGHT + (C_OPEN - C_TIGHT) * open;
   const lean = (C_RISE / C_WIDE) * (ramp(u, C_AT, C_AT + 0.25) - ramp(u, C_AT + C_WIDE - 0.25, C_AT + C_WIDE));
-  const zig = ramp(u, C_ZIG_AT, C_ZIG_AT + C_ZIG_IN) - ramp(u, C_ZIG_END - C_ZIG_IN, C_ZIG_END);
-  // Down over the first half of the window and back up over the second, so the
-  // squiggle sits in the middle of its channel and the course is level again at
-  // both ends. Negative because a heading above π lifts: y grows downward.
-  const dip =
-    ((-2 * C_ZIG_DIP) / C_ZIG_ARC) *
-    (ramp(u, C_ZIG_AT - C_ZIG_IN, C_ZIG_AT) - 2 * ramp(u, C_ZIG_MID - C_ZIG_IN, C_ZIG_MID + C_ZIG_IN) + ramp(u, C_ZIG_END, C_ZIG_END + C_ZIG_IN));
   return (
     Math.PI +
     amp * Math.sin((TAU * (u + C_PHASE)) / C_LEN) +
     lean +
-    dip +
-    zig * (C_ZIG_AMP * Math.sin((TAU * u) / C_ZIG_LEN) - C_KINK * Math.sin((TAU * u) / (C_ZIG_LEN / 2)))
+    SQUIGGLES.reduce((a, s) => a + squiggle(u, s), 0)
   );
 }
 
