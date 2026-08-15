@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>shot</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0d; }
+  body { display: grid; place-items: center; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script type="module">
+  // Scratch: one frame, no audio. draw() is pure in t, so this is all it takes.
+  import { createStage } from './cats.js';
+  const q = new URLSearchParams(location.search);
+  const score = await (await fetch('public/song/notes.json')).json();
+  const stage = await createStage(document.getElementById('c'), score.notes);
+  const t = Number(q.get('t')) || 0;
+  // Redrawn every frame rather than once: a headless screenshot is grabbed at a
+  // moment nothing here controls, and a canvas painted before that moment is not
+  // reliably the canvas it captures.
+  (function loop() {
+    stage.draw(t);
+    mark();
+    requestAnimationFrame(loop);
+  })();
+
+  // Optional crosshair on the fan's centreline, so the alignment can be read off
+  // the picture rather than believed.
+  function mark() {
+    if (!q.has('mark')) return;
+    const c = document.getElementById('c');
+    const g = c.getContext('2d');
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    for (const pair of q.getAll('mark')) {
+      const [x, y] = pair.split(',').map(Number);
+      g.strokeStyle = '#ff3b6b';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(x, 0);
+      g.lineTo(x, c.height);
+      g.stroke();
+    }
+    g.restore();
+  }
+  document.title = 'ready';
+</script>
