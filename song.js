@@ -115,6 +115,7 @@ function frame() {
   hud.innerHTML =
     `<b>${t.toFixed(2)}s</b> / ${score.seconds}s · ${cursor}/${score.count} notes · ` +
     `${shown} cats · ${stage.cast} in the cast · ` +
+    `spiral @${stage.spiral.at.toFixed(1)}s · ` +
     `${sounding ? `${sounding.hz.toFixed(0)}Hz deg ${sounding.degree}` : '—'} · ` +
     `${MIX.mapping} · ` +
     (playing ? 'playing' : 'click to play');

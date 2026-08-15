@@ -18,8 +18,9 @@
  * existing animation, and this module has no opinions about them beyond when
  * they fire.
  */
-import { tailBurst } from './tail.js';
-import { faceBurst } from './face.js';
+import { tailBurst, BURST_LENGTH as TAIL_LENGTH } from './tail.js';
+import { faceBurst, BURST_LENGTH as FACE_LENGTH } from './face.js';
+import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
 
 const MARGIN = 0.1; // fraction of height kept clear at top and bottom
 const EDGE = 0.08; // keeps a cat's centre off the left and right edges
@@ -27,9 +28,10 @@ const ATTACK = 0.06; // seconds to fade in
 const FADE = 0.45; // seconds a cat lingers past the end of its note
 const MAX_LIFE = 2.5; // the longest note here is 10.7s; nobody wants that on screen
 
-// Where the two bursts go, in seconds. Same convention as viz.js: they are the
-// one thing on screen no note asked for, so they say so out loud. The tail
-// burst runs 26s from 20s, so the face burst waits until it is clear.
+// Where the two hand-placed bursts go, in seconds. Same convention as viz.js:
+// they are the one thing on screen no note asked for, so they say so out loud.
+// The tail burst runs 26s from 20s, so the face burst waits until it is clear.
+// The spiral is the exception — it picks its own moment off the score, below.
 const BURSTS = [20];
 const FACE_BURSTS = [50];
 
@@ -83,6 +85,7 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
   const burstCat = { img: burstBody, root: burstTail.root, heading: burstTail.heading };
 
   const sprites = arrange(notes, cats);
+  const spiral = planSpiral(notes);
   const ctx = canvas.getContext('2d');
 
   function resize() {
@@ -93,7 +96,54 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
   addEventListener('resize', resize);
   resize();
 
-  return { draw: (t) => draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages }), cast: cats.length };
+  return {
+    draw: (t) => draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral }),
+    cast: cats.length,
+    spiral,
+  };
+}
+
+/**
+ * When the spiral fires, and the beats that populate it — both read off the
+ * MIDI rather than picked by hand like the other two.
+ *
+ * The beat is the score's own, `tScore`, and not tempo.py's grid: the grid is
+ * a guess at a track that has no stable tempo (README, "Beat tracking"), and
+ * this one is what was written. A chord counts once — twenty notes sharing an
+ * onset is one beat, and would otherwise be twenty cats stacked on one slot.
+ *
+ * The moment is the window with the most beats in it that the tail and face
+ * bursts leave alone. A wheel that populates one cat per beat wants the busiest
+ * passage in the piece; anywhere sparse and it spends its first ten seconds
+ * nearly empty.
+ */
+function planSpiral(notes) {
+  const first = new Map();
+  for (const n of notes) {
+    const beat = Math.round(n.tScore * 1000);
+    if (!(first.get(beat) <= n.t)) first.set(beat, n.t);
+  }
+  const onsets = [...first.values()].sort((a, b) => a - b);
+
+  const busy = [
+    ...BURSTS.map((t) => [t, t + TAIL_LENGTH]),
+    ...FACE_BURSTS.map((t) => [t, t + FACE_LENGTH]),
+  ];
+  const clear = (a, b) => busy.every(([c, d]) => b <= c || a >= d);
+
+  // Candidate starts are the onsets themselves, in order, so the end of the
+  // window only ever moves forward — one pass, not a search per candidate.
+  let at = 0;
+  let best = -1;
+  for (let i = 0, end = 0; i < onsets.length; i++) {
+    while (end < onsets.length && onsets[end] < onsets[i] + SPIRAL_LENGTH) end++;
+    if (!clear(onsets[i], onsets[i] + SPIRAL_LENGTH)) continue;
+    if (end - i > best) {
+      best = end - i;
+      at = onsets[i];
+    }
+  }
+  return { at, beats: onsets.filter((s) => s >= at && s < at + SPIRAL_LENGTH).map((s) => s - at) };
 }
 
 /** One placement per note, computed once — nothing is random at draw time. */
@@ -138,7 +188,7 @@ function firstAfter(sprites, t) {
 }
 
 /** Pure in (sprites, t): scrub back an hour later and the frame is identical. */
-function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages }) {
+function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cats, spiral }) {
   const { width: W, height: H } = canvas;
   ctx.clearRect(0, 0, W, H);
 
@@ -165,5 +215,6 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages }) {
 
   for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat, tails);
   for (const at of FACE_BURSTS) faceBurst(ctx, W, H, t - at, faces, faceImages);
+  spiralBurst(ctx, W, H, t - spiral.at, spiral.beats, cats);
   return shown;
 }
