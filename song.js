@@ -64,6 +64,11 @@ planCats(synth.samples, score.notes);
 // scrubs and pauses with the audio and never accumulates between frames.
 const stage = await createStage(document.getElementById('c'), score.notes);
 
+// The stars outlive the last note now (plan.js, TWINKLE_AFTER), so the page runs
+// to the end of the picture rather than to the end of the score. Stopping at
+// score.seconds would cut the ending off on the frame it starts.
+const END = Math.max(score.seconds, stage.twinkle.at + stage.twinkle.span);
+
 // -------------------------------------------------------------------- clock --
 
 let origin = 0; // ctx.currentTime that song time 0 sits on
@@ -74,7 +79,7 @@ let playing = false;
 export const now = () => (playing ? ctx.currentTime - origin : offset);
 
 function seek(t) {
-  offset = Math.max(0, Math.min(t, score.seconds));
+  offset = Math.max(0, Math.min(t, END));
   origin = ctx.currentTime - offset;
   cursor = score.notes.findIndex((n) => n.t >= offset);
   if (cursor < 0) cursor = score.notes.length;
@@ -109,11 +114,11 @@ function pause() {
 
 function frame() {
   const t = now();
-  if (playing && t >= score.seconds) pause();
+  if (playing && t >= END) pause();
   const shown = stage.draw(t);
   const sounding = score.notes[Math.max(0, cursor - 1)];
   hud.innerHTML =
-    `<b>${t.toFixed(2)}s</b> / ${score.seconds}s · ${cursor}/${score.count} notes · ` +
+    `<b>${t.toFixed(2)}s</b> / ${END.toFixed(2)}s · ${cursor}/${score.count} notes · ` +
     `${shown} cats · ${stage.cast} in the cast · ` +
     // How many of the burst's cats had to move, and how many had nowhere on
     // their row to move to. Both depend on the shape of the window, so they are

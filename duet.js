@@ -119,9 +119,12 @@ planCats(synth.samples, score.notes);
 
 const stage = await createStage(document.getElementById('c'), score.notes);
 
-// The recording outlasts the last note by a couple of seconds. Stopping at the
-// score's end would cut the performance's own ending off.
-const END = Math.max(score.seconds, recording.duration);
+// The recording outlasts the last note by a couple of seconds, and the stars
+// outlast the recording (plan.js, TWINKLE_AFTER). Stopping at the score's end
+// would cut the performance's own ending off; stopping at the recording's would
+// cut the sky off mid-flicker. So the page runs to whichever of the three is
+// last, and the final seconds of it are silent on purpose.
+const END = Math.max(score.seconds, recording.duration, stage.twinkle.at + stage.twinkle.span);
 
 // -------------------------------------------------------------------- clock --
 

@@ -1,15 +1,21 @@
 /**
  * twinkle.js — the stars: the last cats on screen, and much the smallest.
  *
- * Eight seconds, and the only burst anchored to the end of the score rather
- * than to a moment in it. A star lands on every beat the closing bars have,
- * flares, settles, and then flickers on its own clock until the piece stops.
+ * The only burst anchored to the end of the score rather than to a moment in
+ * it, and the only one that outlives the music. A star lands for every beat the
+ * closing bars have, flares, settles, and then flickers on its own clock until
+ * the sky goes out. The whole window is held back a few seconds from the beats
+ * that shaped it (plan.js, TWINKLE_AFTER), so the stars arrive as the last note
+ * dies and the piece finishes on a screen with no sound under it.
  *
  * They are cats, because everything here is cats. A cat two hundredths of the
  * frame high does not read as a cat and was never going to — what does the
  * work is the behaviour: the flare on the attack, the slow flicker after it,
- * and the fact that they arrive on the beat. Three things make a small bright
- * thing read as a star, and none of them is its outline.
+ * and the fact that they arrive in a rhythm rather than at random. That the
+ * rhythm is the closing bars' own, played a few seconds after those bars have
+ * gone, is not something an ear can check — it arrives as intent either way.
+ * Three things make a small bright thing read as a star, and none of them is
+ * its outline.
  *
  * The one trick is compositing. These are drawn with `lighter`, so a star adds
  * its light to the black behind it instead of covering it, and two overlapping
@@ -43,7 +49,7 @@ function rand(seed) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-/** How present the sky is, 0…1 — its own fade, in and then out with the song. */
+/** How present the sky is, 0…1 — up as the music ends, out in the silence. */
 function sky(since, span) {
   if (since < 0 || since > span) return 0;
   return ramp(since, 0, 0.9) * (1 - ramp(since, span - FADE_FOR, span));
@@ -51,10 +57,12 @@ function sky(since, span) {
 
 /**
  * Draw the stars. `since` is seconds since the window opened and `span` is how
- * long that window is — cats.js works both out, one off the moment the lozenge
- * ground starts to fade and the other off the last note, so neither is a number
- * typed here. `beats` is the beat times inside it, in seconds from the start,
- * ascending. Returns whether anything was drawn.
+ * long that window is — plan.js works both out, the span off the stretch from
+ * the lozenge ground's fade to the last note and the start off that same moment
+ * plus the hold, so neither is a number typed here. `beats` is the beat times
+ * inside it, in seconds from the start, ascending. They are the beats of the
+ * stretch the span was measured over, which is no longer the stretch the stars
+ * play in. Returns whether anything was drawn.
  *
  *   twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.span, twinkle.beats, cats)
  */
@@ -62,7 +70,7 @@ export function twinkleBurst(ctx, W, H, since, span, beats, cats) {
   if (!beats.length || !cats.length) return false;
   const layer = sky(since, span);
   if (layer <= 0.004) return false;
-  // A star lasts whatever is left of the piece: they accumulate into a sky and
+  // A star lasts whatever is left of the window: they accumulate into a sky and
   // the sky goes out all at once, rather than each blinking out on its own.
   const LIFE = span;
 
