@@ -208,7 +208,7 @@ export function riverBurst(ctx, W, H, since, cats, beats = []) {
   const camX = RIVER.x0 - 0.5 * (W / H) - CAT_H + PAN * since;
   const camY = BASE - DROP;
   const frame = { camX, camY, halfW: 0.5 * (W / H), pan: PAN };
-  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP);
+  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP, EDGE_FADE);
 
   ctx.save();
   ctx.globalAlpha = alpha;
