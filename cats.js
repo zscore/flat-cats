@@ -325,7 +325,7 @@ function draw(ctx, canvas, sprites, t, { burstCat, tails, faces, faceImages, cat
   for (const at of BURSTS) tailBurst(ctx, W, H, t - at, burstCat, tails);
   for (const at of FACE_BURSTS) faceBurst(ctx, W, H, t - at, faces, faceImages, cats);
   for (const at of RIVER_BURSTS) riverBurst(ctx, W, H, t - at, cats, riverBeats);
-  spiralBurst(ctx, W, H, t - spiral.at, spiral.beats, cats);
+  spiralBurst(ctx, W, H, t - spiral.at, spiral.beats, cats, spiral.inner);
   // Last, and over everything: the stars are the top of the picture.
   twinkleBurst(ctx, W, H, t - twinkle.at, twinkle.span, twinkle.beats, cats);
   return shown;

@@ -18,7 +18,7 @@
  */
 import { BURST_LENGTH as TAIL_LENGTH } from './tail.js';
 import { BURST_LENGTH as FACE_LENGTH } from './face.js';
-import { BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
+import { BURST_LENGTH as SPIRAL_LENGTH, INNER_AT as SPIRAL_INNER_AT } from './spiral.js';
 import { BURST_LENGTH as RIVER_LENGTH } from './river.js';
 import { BURST_LENGTH as CHECKER_LENGTH, FADE_FOR as CHECKER_FADE } from './checkers.js';
 import { BURST_LENGTH as MOON_LENGTH } from './moon.js';
@@ -139,7 +139,14 @@ export function planSpiral(notes) {
         `by ${end.toFixed(1)}s with its ${span.toFixed(1)}s of ground; overlapping instead, at ${at.toFixed(1)}s`,
     );
   }
-  return { at, beats: onsets.filter((s) => s >= at && s < at + SPIRAL_LENGTH).map((s) => s - at) };
+  const beats = onsets.filter((s) => s >= at && s < at + SPIRAL_LENGTH).map((s) => s - at);
+  // The inner wheel takes the same beats from SPIRAL_INNER_AT on, and keeps the
+  // burst's own origin so both lists are on one clock. It starts on a beat
+  // rather than between two — the same rule the walk starts on — because the
+  // first thing it does is land a cat, and landing it a third of a second early
+  // reads as a glitch rather than as the wheel arriving.
+  const from = beats.find((s) => s >= SPIRAL_INNER_AT) ?? SPIRAL_INNER_AT;
+  return { at, beats, inner: beats.filter((s) => s >= from) };
 }
 
 /**

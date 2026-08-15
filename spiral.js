@@ -21,9 +21,19 @@
  * "more cats come in from the edges" is a consequence of the arm contracting
  * rather than a thing that had to be arranged.
  *
- * Which beats those are is the caller's problem — cats.js reads them off the
- * MIDI and hands them over relative to the trigger. This module never sees the
- * song.
+ * Eight seconds in, a second wheel starts populating inside the first: the same
+ * wheel again at a little over half the size, on the same centre, off the same
+ * clock, and turning the same way. Two things make it read as threaded through
+ * the first rather than laid on top of it — its arms are wound the *other* way,
+ * so the two sets of arms cross, and it starts half an arm-gap round, so its
+ * arms leave the centre in the gaps the first one's leave. Turning the same way
+ * is what keeps the pair one object; counter-turning reads as two things
+ * fighting over the same middle. It shares every number in score() below, so it
+ * packs and blooms and leaves with the first — one gesture, not two.
+ *
+ * Which beats populate either wheel is the caller's problem — cats.js reads them
+ * off the MIDI and hands them over relative to the trigger. This module never
+ * sees the song.
  *
  * Like draw() in viz.js, tailBurst() in tail.js and faceBurst() in face.js this
  * is a pure function of time — no counters, no rand(), nothing carried between
@@ -33,6 +43,10 @@
  */
 
 export const BURST_LENGTH = 35; // seconds, start to nothing on screen
+// Seconds into the burst that the inner wheel starts filling. Held here rather
+// than as a moment in the song because the two wheels share a clock: move the
+// spiral and this moves with it. With the spiral at 127.0s it lands at ~135s.
+export const INNER_AT = 8;
 
 const ARMS = 3; // fewer reads as a whirlpool, more as a disc with no arms
 const WIND = 1.25; // radians an arm turns per e-fold of distance along it
@@ -46,6 +60,24 @@ const ATTACK = 0.45; // seconds a cat takes to fade in when its beat lands
 const LEAN = 0.35;
 const TAU = Math.PI * 2;
 
+/**
+ * The two wheels, as the only four numbers that differ between them. Everything
+ * else — the score, the arm count, the winding rate, the lean — they share, so
+ * the second wheel is not a second design to keep in step with the first.
+ *
+ *   wind    which way the arms curl. Opposite signs is what makes them cross.
+ *   offset  where arm 0 leaves the centre. Half an arm-gap puts the inner
+ *           wheel's arms in the outer's gaps.
+ *   scale   applied to pitch and size together, so the inner wheel is the outer
+ *           one photographed smaller rather than a denser wheel of small cats.
+ *   seed    which cat lands on which slot; different, or the same cat shows up
+ *           twice on the same spoke.
+ */
+export const WHEELS = {
+  outer: { wind: 1, offset: 0, scale: 1, seed: 7 },
+  inner: { wind: -1, offset: Math.PI / ARMS, scale: 0.55, seed: 11 },
+};
+
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const ramp = (x, a, b) => smooth((x - a) / (b - a));
@@ -58,7 +90,7 @@ const smoother = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * x * (x * (x * 6 - 15)
  * explicit window, so the timing of the piece is readable in one place — change
  * a number here rather than anywhere below.
  */
-function score(s) {
+export function score(s) {
   const pack = ramp(s, 5.5, 24.0);
   const bloom = ramp(s, 25.5, 33.0);
   return {
@@ -81,6 +113,23 @@ function score(s) {
   };
 }
 
+/**
+ * Where slot `k` of `wheel` sits under the score `p`, in fractions of the short
+ * side — radius from the centre, height of the cat, and the angle it stands at.
+ *
+ * Exported because it is the whole geometry of the piece in six lines, and a
+ * checker that re-implemented it would be checking its own arithmetic rather
+ * than what gets drawn. tools/spiral-check.mjs calls this one.
+ */
+export function slot(k, p, wheel) {
+  const j = Math.floor(k / ARMS); // how far along its arm this slot sits
+  return {
+    r: wheel.scale * p.pitch * (j + 1) ** SPREAD,
+    h: wheel.scale * p.size * (j + 1) ** -DEPTH,
+    theta: (k % ARMS) * (TAU / ARMS) + wheel.offset + wheel.wind * WIND * Math.log1p(j) + p.spin,
+  };
+}
+
 /** How many beats have landed by `since`. Beats are ascending; binary search. */
 function arrived(beats, since) {
   let lo = 0;
@@ -94,47 +143,63 @@ function arrived(beats, since) {
 }
 
 /**
- * Draw the burst. `since` is seconds since it was triggered — negative or past
- * the end and nothing is drawn. `beats` is the beat times that populate it, in
- * seconds from the trigger, ascending. `cats` is the image cast. Returns
- * whether anything was drawn.
- *
- *   spiralBurst(ctx, canvas.width, canvas.height, t - 127, beats, cats)
+ * One wheel's cats, at the frame `p` describes. `beats` populate it, on the
+ * burst's clock; `view` is the frame it is being drawn into.
  */
-export function spiralBurst(ctx, W, H, since, beats, cats) {
-  if (since < 0 || since > BURST_LENGTH || !beats.length || !cats.length) return false;
-  const p = score(since);
-  if (p.alpha <= 0.001) return false;
-
-  const R = Math.min(W, H);
-  const cx = W / 2;
-  const cy = H / 2;
-  const edge = 0.5 * Math.hypot(W, H); // corner distance: past this is off-frame
-
-  ctx.save();
-  ctx.globalAlpha = p.alpha;
+function turn(ctx, view, p, since, beats, cats, wheel) {
+  const { R, cx, cy, edge } = view;
 
   // Outermost first, so the cats nearest the middle land on top of the swarm
   // behind them. Radius grows with k, so counting k down is that order.
   for (let k = arrived(beats, since) - 1; k >= 0; k--) {
-    const j = Math.floor(k / ARMS); // how far along its arm this slot sits
-    const r = p.pitch * R * (j + 1) ** SPREAD;
-    const h = p.size * R * (j + 1) ** -DEPTH;
+    // slot() works in fractions of the short side, so that one function serves
+    // both the drawing and the checker; pixels happen here and nowhere else.
+    const s = slot(k, p, wheel);
+    const r = s.r * R;
+    const h = s.h * R;
     if (r - h > edge) continue; // off-frame, and there is a lot of off-frame
 
-    const img = cats[(k * 7 + 3) % cats.length];
+    const img = cats[(k * wheel.seed + 3) % cats.length];
     const w = h * (img.width / img.height);
-    const theta = (k % ARMS) * (TAU / ARMS) + WIND * Math.log1p(j) + p.spin;
 
     ctx.save();
     ctx.globalAlpha = p.alpha * clamp01((since - beats[k]) / ATTACK);
-    ctx.translate(cx + Math.cos(theta) * r, cy + Math.sin(theta) * r);
-    ctx.rotate(LEAN * theta);
+    ctx.translate(cx + Math.cos(s.theta) * r, cy + Math.sin(s.theta) * r);
+    ctx.rotate(LEAN * s.theta);
     if (k % 2) ctx.scale(-1, 1);
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
     ctx.restore();
   }
+}
 
+/**
+ * Draw the burst. `since` is seconds since it was triggered — negative or past
+ * the end and nothing is drawn. `beats` is the beat times that populate the
+ * outer wheel, in seconds from the trigger, ascending, and `inner` the ones
+ * that populate the inner one, on the same clock and so starting part-way up.
+ * `cats` is the image cast. Returns whether anything was drawn.
+ *
+ *   spiralBurst(ctx, canvas.width, canvas.height, t - 127, beats, cats, inner)
+ */
+export function spiralBurst(ctx, W, H, since, beats, cats, inner = []) {
+  if (since < 0 || since > BURST_LENGTH || !beats.length || !cats.length) return false;
+  const p = score(since);
+  if (p.alpha <= 0.001) return false;
+
+  const view = {
+    R: Math.min(W, H),
+    cx: W / 2,
+    cy: H / 2,
+    edge: 0.5 * Math.hypot(W, H), // corner distance: past this is off-frame
+  };
+
+  ctx.save();
+  ctx.globalAlpha = p.alpha;
+  turn(ctx, view, p, since, beats, cats, WHEELS.outer);
+  // Second, and so on top: the inner wheel lives entirely in the crowded middle,
+  // and drawn first it would spend the packed stretch buried under the outer
+  // wheel's own centre.
+  turn(ctx, view, p, since, inner, cats, WHEELS.inner);
   ctx.restore();
   return true;
 }
