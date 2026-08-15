@@ -12,6 +12,9 @@
  * Running the other way, right to left, single file, are the currents —
  * currents.js, built off this river's own landmarks rather than off coordinates
  * of their own. Between them something is always swimming against the river.
+ * The last of them is not a counter-current at all: the top river runs the same
+ * way this one does, along the very top of the frame and mostly above it, and
+ * the frame meets it 52 seconds in. currents.js says why it can be no lower.
  *
  * Three things worth writing down, because they are what the module is.
  *
@@ -40,11 +43,13 @@
  * there is no moment anywhere in it where anything speeds up. The burst is as
  * long as the river takes at that pace — BURST_LENGTH is derived, not chosen.
  *
- * THIRD: the counter-currents are more courses in the same world, not more
- * bursts. Neither has a start time of its own — they simply exist alongside the
- * river, and the frame finds them when it gets there. Which is why the drawing
- * code takes a course rather than knowing about the river: there are three now,
- * and one loop draws any of them.
+ * THIRD: the other courses are more courses in the same world, not more bursts.
+ * None has a start time of its own — they simply exist alongside the river, and
+ * the frame finds them when it gets there. A course that wants a *moment* gets
+ * one by being placed where the frame will be at that second, which is all the
+ * top river's "from 52s" is. Which is why the drawing code takes a course rather
+ * than knowing about the river: there are four now, and one loop draws any of
+ * them.
  *
  * Where they can go is decided by where this river is *not* — currents.js is
  * shaped to the clear water this one leaves, and says so in its own head.
@@ -54,9 +59,10 @@
  * self-crossing because the amplitude stays under the ~2.2 rad where a
  * sine-generated curve folds. Two *different* curves clearing each other is not
  * something a bound gives you, so river-check measures every pair, point against
- * point: river/counter is the tightest at 0.038. Move any constant and that
- * moves with it — check it rather than assuming it survived. It is also what
- * cost the meander its depth, as SNAKE_AMP explains below.
+ * point: counter/under is the tightest at 0.027, then river/counter at 0.038 and
+ * river/top at 0.044. Move any constant and those move with it — check them
+ * rather than assuming they survived. It is also what cost the meander its
+ * depth, as SNAKE_AMP explains below.
  *
  * Like draw() in viz.js, tailBurst() in tail.js, faceBurst() in face.js and
  * spiralBurst() in spiral.js this is a pure function of time — no counters, no
@@ -175,6 +181,10 @@ const RIVER = makeCourse(heading, LENGTH, 0, 0, LANES);
 // centre a little under them so the risers have somewhere to leave to.
 const BASE = RIVER.ys[Math.round(SQ_AT / STEP)];
 
+// As long as it takes to pan the whole course, plus a frame's width at each end
+// so the river arrives from off-screen and leaves the same way.
+export const BURST_LENGTH = Math.round((RIVER.x1 - RIVER.x0 + NOMINAL_ASPECT) / PAN);
+
 // Where the river's own stretches begin and end. The currents are placed off
 // these rather than off typed-in coordinates, so moving a stretch moves them.
 const MARKS = {
@@ -182,14 +192,39 @@ const MARKS = {
   snakeY: RIVER.ys[Math.round(SN_AT / STEP)],
   teethX: RIVER.xs[Math.round(SQ_OUT / STEP)],
   base: BASE,
+  // The frame's top edge, and its wavelength: a current that runs along the top
+  // of the frame needs to know where that edge is, and one that means to stay
+  // out of step with the meander needs to know what it is staying out of step
+  // with. Both are the river's, so both are handed over rather than copied.
+  top: BASE - DROP - 0.5,
+  snakeLen: SNAKE_LEN,
+  // Where the frame's right-hand edge has got to, `s` seconds into the burst.
+  // A current placed at this x is one the frame first meets at second s — which
+  // is how a current gets a moment without getting a trigger of its own. The
+  // nominal aspect is the same approximation BURST_LENGTH is built on: on a
+  // wider screen the edge is further out and the meeting is a little earlier.
+  rightEdgeAt: (s) => RIVER.x0 - CAT_H + PAN * s,
+  burst: BURST_LENGTH,
 };
 
 const COURSES = [RIVER, ...makeCurrents(RIVER, MARKS)];
 
-
-// As long as it takes to pan the whole course, plus a frame's width at each end
-// so the river arrives from off-screen and leaves the same way.
-export const BURST_LENGTH = Math.round((RIVER.x1 - RIVER.x0 + NOMINAL_ASPECT) / PAN);
+// Which courses a hit may swell a cat on, and where each one's swells came back.
+//
+// Not every course can hold a pulse. pulse.js keeps its choice INSET inside the
+// frame so a swelling cat grows into the picture, and a course that never comes
+// more than a hair below the top edge has nothing that far in — the top river
+// cannot be picked, by construction, whether or not it is offered. Offering it
+// anyway is not harmless: the starting course of every hit is hashed against the
+// size of this pool, so a fourth entry that can never win still moves which cat
+// each of the other beats swells. Left out, the score lands exactly where it did
+// before the top river existed, which pulse-check confirms.
+//
+// POOL_OF maps a course's index in COURSES to its index in the pool, or -1 for
+// one that is not in it — read by position rather than by identity so the order
+// of COURSES is free to change.
+const POOL = COURSES.filter((c) => !c.veil);
+const POOL_OF = COURSES.map((c) => POOL.indexOf(c));
 
 /**
  * Draw the river. `since` is seconds since it was triggered — negative or past
@@ -208,13 +243,13 @@ export function riverBurst(ctx, W, H, since, cats, beats = []) {
   const camX = RIVER.x0 - 0.5 * (W / H) - CAT_H + PAN * since;
   const camY = BASE - DROP;
   const frame = { camX, camY, halfW: 0.5 * (W / H), pan: PAN };
-  const swollen = swells(since, beats, COURSES, frame, FLOW, GAP, EDGE_FADE);
+  const swollen = swells(since, beats, POOL, frame, FLOW, GAP, EDGE_FADE);
 
   ctx.save();
   ctx.globalAlpha = alpha;
   // The counter-river second, so where the two mesh its file of cats reads as
   // passing in front rather than being half-buried in the wider ribbon.
-  COURSES.forEach((course, c) => swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen[c]));
+  COURSES.forEach((course, c) => swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen[POOL_OF[c]]));
   ctx.restore();
   return true;
 }
@@ -247,6 +282,12 @@ function swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen) {
     if (x < -edge * H || x > W + edge * H || y < -edge * H || y > H + edge * H) continue;
 
     const fade = clamp01(u / EDGE_FADE) * clamp01((course.length - u) / EDGE_FADE);
+    // A course that lives off the edge of the frame says so with a veil, and the
+    // cats on it fade up as they come into shot instead of being cut off by the
+    // edge. Measured from the bottom of the cat, so a cat is at nothing exactly
+    // as its feet reach the edge; `veil` is how much further in it has to come
+    // to be fully there. Position only, so it stays as pure as everything else.
+    const veil = course.veil ? clamp01((y + h / 2) / (course.veil * H)) : 1;
     const nx = -Math.sin(p.th); // across the flow, for the lanes
     const ny = Math.cos(p.th);
     const mid = (course.lanes - 1) / 2;
@@ -258,7 +299,7 @@ function swim(ctx, W, H, course, cats, since, alpha, camX, camY, swollen) {
       const w = size * (img.width / img.height);
 
       ctx.save();
-      ctx.globalAlpha = alpha * fade;
+      ctx.globalAlpha = alpha * fade * veil;
       ctx.translate(x + nx * off, y + ny * off);
       ctx.rotate(p.th);
       // Past a quarter turn the cat is heading backwards and lying on its back.

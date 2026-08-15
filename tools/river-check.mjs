@@ -4,7 +4,7 @@
  *   node tools/river-check.mjs   # writes out/river.html
  *
  * river.js draws cats and there is no canvas here to draw them on. What can be
- * checked without one is the curve they ride, which is the whole design. Four
+ * checked without one is the curve they ride, which is the whole design. Six
  * claims, in the order they matter:
  *
  *   leaves      the risers clear the top of the frame — the thing that stopped
@@ -20,6 +20,9 @@
  *               phase and offset were swept for it numerically — so it is
  *               measured here the only honest way: every point of one course
  *               against every point of the other
+ *   hangs       the top river comes into shot at all. It is built to spend most
+ *               of its length above the frame, so the way it fails is not being
+ *               off-screen — it is never dipping in, which no other row notices
  *
  * The picture is the whole course drawn end to end with the travelling frame
  * marked on it at a dozen moments, so the shape and what you actually see of it
@@ -61,7 +64,8 @@ const K = Object.fromEntries(
    'WAVE_LEN', 'BLEND', 'TEETH', 'RISER', 'RUN', 'ROUND', 'SNAKE_ARC', 'SNAKE_AMP', 'SNAKE_LEN',
    'B_LANES', 'B_AMP', 'B_LEN', 'B_PHASE', 'B_DROP', 'B_LEAD',
    'C_LANES', 'C_LOW', 'C_TIGHT', 'C_OPEN', 'C_LEN', 'C_PHASE', 'C_AT', 'C_WIDE', 'C_RISE', 'C_LEAD',
-   'H_ARC', 'H_TURN']
+   'H_ARC', 'H_TURN',
+   'T_LANES', 'T_AT', 'T_AMP', 'T_DEEP', 'T_LEAD', 'T_VEIL']
     .map((n) => [n, num(n)]),
 );
 const TOOTH = 2 * K.RISER + 2 * K.RUN;
@@ -147,6 +151,34 @@ for (let i = 0, hn = Math.ceil(K.H_ARC / STEP); i <= hn; i++) { const t = hook(i
   }
 }
 
+// ----------------------------------------------------------- the top river --
+
+// Rebuilt the same way, and for the same reason: this is an independent check on
+// the shape, not a call into it. PHI is arithmetic rather than one of the
+// river's knobs, so it is computed here instead of read back out of the source.
+const PHI = (1 + Math.sqrt(5)) / 2;
+// The frame's top edge, in the course's own units. Both this stretch and the
+// `leaves` claim below are about the same edge, so it is measured once here.
+const top = camY - 0.5;
+const tLen = K.SNAKE_LEN / PHI;
+const tExc = (K.T_AMP * tLen) / Math.PI;
+const rightEdgeAt = (s) => x0 - K.CAT_H + K.PAN * s;
+const tArc = (rightEdgeAt(river.BURST_LENGTH) + K.T_LEAD - rightEdgeAt(K.T_AT)) / bessel0(K.T_AMP);
+const tn = Math.ceil(tArc / STEP);
+const txs = [], tys = [];
+{
+  let x = rightEdgeAt(K.T_AT), y = top + K.T_DEEP - tExc;
+  for (let i = 0; i <= tn; i++) {
+    txs.push(x); tys.push(y);
+    const th = K.T_AMP * Math.sin((TAU * i * STEP) / tLen);
+    x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
+  }
+}
+// What the top river is actually worth to look at: how far its belly comes below
+// the frame's top edge, and how much of its length is in shot at all.
+const tDip = Math.max(...tys) + K.CAT_H / 2 - top;
+const tSeen = tys.filter((y) => y + K.CAT_H / 2 > top).length / tys.length;
+
 // Ribbon half-widths: two courses just touch when their centre lines close to
 // the sum of these, so anything above zero below is real daylight. With three
 // courses it is every pair, not just the pair that was interesting last week.
@@ -155,6 +187,7 @@ const COURSES = [
   { name: 'river', xs, ys, half: half(K.LANES) },
   { name: 'counter', xs: bxs, ys: bys, half: half(K.B_LANES) },
   { name: 'under', xs: cxs, ys: cys, half: half(K.C_LANES) },
+  { name: 'top', xs: txs, ys: tys, half: half(K.T_LANES) },
 ];
 function apart(p, q) {
   let nearest = Infinity;
@@ -197,9 +230,8 @@ function selfIntersections(step = 6) {
 
 // ------------------------------------------------------------------ leaves --
 
-// The frame's top edge, in the same units the course is drawn in. A riser
-// clears it if the course gets above it — remember y grows downward.
-const top = camY - 0.5;
+// A riser clears the frame's top edge (measured above) if the course gets above
+// it — remember y grows downward.
 let above = 0;
 for (let i = Math.round(SQ_AT / STEP); i < Math.round(SQ_OUT / STEP); i++) if (ys[i] < top) above++;
 const highest = Math.min(...ys.slice(Math.round(SQ_AT / STEP), Math.round(SQ_OUT / STEP)));
@@ -228,7 +260,8 @@ const speeds = `pan ${K.PAN}/s · flow ${K.FLOW}/s · net ${(K.FLOW - K.PAN).toF
 const SCALE = 78; // px per frame-height, for the drawing
 const pad = 0.6;
 const w = Math.round((x1 - x0 + 2 * pad) * SCALE);
-const yLo = Math.min(...ys, ...bys, ...cys, top) - pad, yHi = Math.max(...ys, ...bys, ...cys, camY + 0.5) + pad;
+const yLo = Math.min(...ys, ...bys, ...cys, ...tys, top) - pad;
+const yHi = Math.max(...ys, ...bys, ...cys, ...tys, camY + 0.5) + pad;
 const h = Math.round((yHi - yLo) * SCALE);
 const px = (x) => ((x - x0 + pad) * SCALE).toFixed(1);
 const py = (y) => ((y - yLo) * SCALE).toFixed(1);
@@ -236,6 +269,7 @@ const py = (y) => ((y - yLo) * SCALE).toFixed(1);
 const course = xs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(ys[i])}`).join('');
 const counter = bxs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(bys[i])}`).join('');
 const beneath = cxs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(cys[i])}`).join('');
+const overhead = txs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(tys[i])}`).join('');
 const MOMENTS = 12;
 let frames = '';
 for (let m = 0; m < MOMENTS; m++) {
@@ -255,9 +289,17 @@ const rows = [
   ['wide', `${K.LANES} lanes, ${K.LANE} apart; tightest turn radius ${tightest.toFixed(3)}` +
     ` vs inside lane at ${inside.toFixed(3)} — ${tightest < inside ? 'inside lane pinches at the corners' : 'no pinch'}`,
     tightest >= inside],
-  ['clear', pairs.map(([nm, g]) => `${nm} ${g.toFixed(3)}`).join(' · ') +
+  // A pair that never comes within the prune window has no nearest approach to
+  // report, which is not a failure — it is the widest possible pass.
+  ['clear', pairs.map(([nm, g]) => `${nm} ${Number.isFinite(g) ? g.toFixed(3) : 'never near'}`).join(' · ') +
     ` — frame-heights of daylight between ribbons${clearGap <= 0 ? ', SOMETHING TOUCHES' : ''}`,
     clearGap > 0],
+  // The top river is meant to be mostly out of shot, so the failure here is not
+  // "some of it is off-screen" — it is none of it ever coming in.
+  ['hangs', `the top river dips ${tDip.toFixed(3)} below the frame's top edge ` +
+    `(${(100 * tDip / K.CAT_H).toFixed(0)}% of a cat), in shot for ${(100 * tSeen).toFixed(0)}% of its length; ` +
+    `wavelength ${tLen.toFixed(3)} against the meander's ${K.SNAKE_LEN} — ratio ${(K.SNAKE_LEN / tLen).toFixed(3)}`,
+    tDip > 0.01 && tSeen > 0.1],
 ].map(([k, v, ok]) => `<tr><td>${k}</td><td class="${ok ? 'ok' : 'no'}">${v}</td></tr>`).join('');
 
 writeFileSync(new URL('../out/river.html', import.meta.url),
@@ -278,11 +320,16 @@ writeFileSync(new URL('../out/river.html', import.meta.url),
   `<path d="${counter}" fill="none" stroke="#e0864a" stroke-width="1.5"/>` +
   `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="${K.CAT_H * SCALE * K.C_LANES}"` +
   ` stroke-opacity="0.25" stroke-linecap="round"/>` +
-  `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="1.5"/>${frames}</svg>` +
+  `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="1.5"/>` +
+  `<path d="${overhead}" fill="none" stroke="#c98ae0" stroke-width="${K.CAT_H * SCALE * K.T_LANES}"` +
+  ` stroke-opacity="0.25" stroke-linecap="round"/>` +
+  `<path d="${overhead}" fill="none" stroke="#c98ae0" stroke-width="1.5"/>${frames}</svg>` +
   `<figcaption>blue is the river, three cats abreast; orange is the counter-river meshed into ` +
   `the meander; green is the under-river, which runs the whole way before it — tight under the ` +
   `right angles, opening out under the wave. both counter-currents run right to left, single ` +
-  `file. bands are drawn at their real width. ` +
+  `file. purple is the top river, which runs left to right like the river and spends most of ` +
+  `its length above the frame's top edge — the stretches inside a gold box are the only ones ` +
+  `ever seen. bands are drawn at their real width. ` +
   `gold boxes are the frame at ${MOMENTS} moments; anything outside one is off-screen then.` +
   `</figcaption></figure>`);
 
@@ -291,4 +338,6 @@ console.log(`leaves : risers clear the top by ${clears} frame-heights (${above} 
 console.log(`untied : ${bad} self-intersections`);
 console.log(`steady : ${speeds}`);
 console.log(`wide   : tightest radius ${tightest.toFixed(3)} vs inside lane ${inside.toFixed(3)}`);
-console.log(`clear  : ${pairs.map(([nm, g]) => `${nm} ${g.toFixed(3)}`).join(' · ')}`);
+console.log(`clear  : ${pairs.map(([nm, g]) => `${nm} ${Number.isFinite(g) ? g.toFixed(3) : 'never near'}`).join(' · ')}`);
+console.log(`hangs  : top river dips ${tDip.toFixed(3)} below the top edge, in shot for ${(100 * tSeen).toFixed(0)}% of its length` +
+  `, wavelength ${tLen.toFixed(3)} vs the meander's ${K.SNAKE_LEN}`);

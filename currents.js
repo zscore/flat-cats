@@ -77,6 +77,41 @@ const C_WIDE = 1.5; // and how much arc it takes to do it
 const C_RISE = 0.1;
 const C_LEAD = 0.9;
 
+// The top river — another river rather than a third current, in that it runs the
+// same way the river does, left to right, along the very top of the frame. Like
+// the counter-river it has no trigger of its own: it is placed at the x the
+// frame's right edge reaches T_AT seconds into the burst, and "from 52s" is that
+// placement rather than a start time. Nothing in plan.js knows it exists.
+//
+// Almost all of it is above the top edge, and that is not a compromise — it is
+// the only room there is. Where the meander crests, the top of its three-lane
+// ribbon comes to within 0.074 of the frame's top edge, and a cat is 0.075 tall.
+// There is one cat-height of clear water up there and the edge of the screen
+// runs through the middle of it. So the course hangs off the top and dips its
+// belly into shot, and what you see is the bottom two thirds of a file of cats
+// sliding along the top of the frame.
+//
+// T_DEEP is that dip: from the top edge down to the deepest the centre line
+// goes, and it is the one constant the crest constrains. At 0.015 the ribbon
+// still clears the meander by 0.044, the same order as the 0.038 the
+// counter-river leaves. Past about 0.036 they touch, and river-check says so.
+const T_LANES = 1;
+const T_AT = 52; // seconds into the burst that the frame first meets it
+const T_AMP = 0.5; // heading amplitude — how hard it dives in and out of shot
+const T_DEEP = 0.015; // how far below the frame's top edge the deepest dip goes
+const T_LEAD = 0.3; // arc past the last frame, so the mouth is never in shot
+const T_VEIL = 0.035; // how far in a cat comes before it is fully faded up
+
+// Out of step on purpose. The meander and the counter-river share a wavelength
+// of 1.9 — they are meshed into each other, so they have to — and the
+// under-river's is 1.8. A fourth course on any of those reads as one more voice
+// in a rhythm the eye has already learned. This one is the meander's wavelength
+// over the golden ratio, which is the one ratio with no good small whole-number
+// approximation: the dips never fall into step with the bends underneath them,
+// and what is in shot keeps changing for the whole fourteen seconds. Derived
+// from the meander rather than typed, so it stays de-synced if the meander moves.
+const PHI = (1 + Math.sqrt(5)) / 2;
+
 // The squiggles. Under the teeth the course above is doing right angles and this
 // one is nearly straight for thirty seconds of frame, which is a long time to
 // watch a line. So it tightens, in windows, and this is the table of them.
@@ -185,11 +220,14 @@ function under(u) {
  *
  * `marks` is where the river's own stretches begin and end, in its coordinates:
  * `snakeX`/`snakeY` the head of the meander, `teethX` the end of the right
- * angles, `base` the height of their floor. Everything below is measured off
- * those, which is what keeps this file free of typed-in coordinates.
+ * angles, `base` the height of their floor, `top` the frame's top edge,
+ * `snakeLen` the meander's wavelength, `rightEdgeAt(s)` where the frame's
+ * right-hand edge has got to s seconds in, and `burst` how long that pan lasts.
+ * Everything below is measured off those, which is what keeps this file free of
+ * typed-in coordinates.
  */
 export function makeCurrents(river, marks) {
-  const { snakeX, snakeY, teethX, base } = marks;
+  const { snakeX, snakeY, teethX, base, top, snakeLen, rightEdgeAt, burst } = marks;
 
   // A lead past the mouth of the meander, across the flow from the line it
   // leaves on, and long enough to run back past where the meander began.
@@ -211,5 +249,29 @@ export function makeCurrents(river, marks) {
     C_LANES,
   );
 
-  return [counter, underRiver];
+  // The top river, from where the frame's right edge is at T_AT to a lead past
+  // where it is when the burst ends.
+  //
+  // Two things are being solved at once by starting on phase 0. A sine-generated
+  // curve is at its furthest *up* where its heading crosses zero rising, so
+  // phase 0 puts the highest point of the whole course at u = 0 — the source is
+  // the one place guaranteed to be off the top of the frame, which is what stops
+  // a file of cats fading up in mid-air the way the under-river used to. And it
+  // fixes where the origin has to go: the curve only ever hangs *below* its
+  // source, by up to a full excursion, so the source sits an excursion above the
+  // depth the dips are wanted at.
+  const topLen = snakeLen / PHI;
+  const excursion = (T_AMP * topLen) / Math.PI;
+  const topRiver = makeCourse(
+    (u) => T_AMP * Math.sin((TAU * u) / topLen),
+    (rightEdgeAt(burst) + T_LEAD - rightEdgeAt(T_AT)) / bessel0(T_AMP),
+    rightEdgeAt(T_AT),
+    top + T_DEEP - excursion,
+    T_LANES,
+  );
+  // Which is what tells river.js to fade its cats in as they come into shot
+  // rather than letting the top edge cut them off. No other course carries one.
+  topRiver.veil = T_VEIL;
+
+  return [counter, underRiver, topRiver];
 }
