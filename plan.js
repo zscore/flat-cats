@@ -167,7 +167,7 @@ export function planSpiral(notes) {
  * stars keep the closing bars' rhythm without arriving on the bars themselves.
  * twinkle.js says the same thing from the drawing side.
  */
-const TWINKLE_AFTER = 5; // seconds the sky waits after the grid starts to go
+const TWINKLE_AFTER = 8; // seconds the sky waits after the grid starts to go
 
 export function planTwinkle(notes, spiralAt) {
   const from = spiralAt + SPIRAL_LENGTH / 2 + CHECKER_LENGTH - CHECKER_FADE;
