@@ -10,7 +10,7 @@
  * the cast's real proportions out of the PNG headers, so a cat here is the shape
  * of the cat there.
  *
- * Five claims, in the order they matter:
+ * Six claims, in the order they matter:
  *
  *   threaded   the inner wheel's arms leave the centre in the gaps the outer
  *              wheel's leave — half an arm-gap, not some fraction of one
@@ -23,6 +23,10 @@
  *              "start to nothing on screen", and the inner wheel is the first
  *              thing here that can break that: at 0.55 scale its arms open at
  *              0.55 the rate, so it clears the frame later than the outer one
+ *   heard      every beat swells a cat that is on frame and lit. The failure is
+ *              silent by design — a beat with nothing to choose from passes
+ *              without a swell — so the only way to know is to count, which is
+ *              the lesson pulse.js learned the hard way against the river
  *   room       the honest one, with no pass mark: how crowded the middle gets.
  *              The outer wheel already overlaps itself heavily when it packs, so
  *              the number that matters is not the inner wheel's crowding but how
@@ -33,7 +37,7 @@
  * is what you see in the panel marked 8s.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { score, slot, WHEELS, BURST_LENGTH, INNER_AT } from '../spiral.js';
+import { score, slot, pool, swelling, WHEELS, BURST_LENGTH, INNER_AT } from '../spiral.js';
 import { planSpiral } from '../plan.js';
 
 const url = (p) => new URL(p, import.meta.url);
@@ -58,12 +62,15 @@ const LEAN = 0.35;
 /** Every slot of `wheel` that has arrived by `s` and is on frame, as drawn. */
 function onFrame(s, beats, wheel) {
   const p = score(s);
+  const grown = swelling(s, beats, wheel, EDGE);
   const out = [];
   for (let k = 0; k < beats.length && beats[k] <= s; k++) {
-    const { r, h, theta } = slot(k, p, wheel);
+    const { r, theta } = slot(k, p, wheel);
+    const swollen = grown.get(k) ?? 0;
+    const h = slot(k, p, wheel).h * (1 + swollen);
     if (r - h > EDGE) continue;
     const aspect = ASPECTS[(k * wheel.seed + 3) % ASPECTS.length];
-    out.push({ k, r, h, theta, w: h * aspect, x: Math.cos(theta) * r, y: Math.sin(theta) * r });
+    out.push({ k, r, h, theta, swollen, w: h * aspect, x: Math.cos(theta) * r, y: Math.sin(theta) * r });
   }
   return out;
 }
@@ -147,6 +154,21 @@ function crowding(s) {
 const each = Array.from({ length: BURST_LENGTH + 1 }, (_, s) => ({ s, ...crowding(s) }));
 const worst = each.reduce((a, b) => (b.oi > a.oi ? b : a));
 
+// ------------------------------------------------------------------ heard --
+
+// A beat with an empty pool passes silently, so count them. Both wheels run out
+// of pool at the same place — the first ATTACK-worth of beats, before there is
+// any cat old enough to swell — and the inner wheel's own count starts there
+// again 8s in, which is why it is measured per wheel rather than in total.
+const heard = [
+  ['outer', spiral.beats, WHEELS.outer],
+  ['inner', spiral.inner, WHEELS.inner],
+].map(([name, beats, wheel]) => {
+  const pools = beats.map((_, i) => pool(i, beats, wheel, EDGE));
+  const lost = pools.filter((n) => n === 0).length;
+  return { name, of: beats.length, lost, widest: Math.max(...pools), median: pools.sort((a, b) => a - b)[pools.length >> 1] };
+});
+
 // ----------------------------------------------------------------- leaves --
 
 // The bloom's job is to clear the frame. Measured at the moment the fade-out
@@ -164,13 +186,18 @@ const w = Math.round(VIEW * S);
 const panels = MOMENTS.map((s, i) => {
   const px = (x) => (w / 2 + x * S).toFixed(1);
   const py = (y) => (S / 2 + y * S).toFixed(1);
+  // A swelling cat is drawn at its swollen size and outlined in white, because
+  // at a typical 20% over its neighbours the size alone is not something you can
+  // pick out of a hundred and forty cats on a page — which is itself worth
+  // knowing, and is the question this panel is here to answer.
   const draw = (cs, fill) =>
     cs
       .map(
         (c) =>
           `<rect x="${(-c.w * S) / 2}" y="${(-c.h * S) / 2}" width="${(c.w * S).toFixed(1)}"` +
-          ` height="${(c.h * S).toFixed(1)}" rx="2" fill="${fill}" fill-opacity="0.42"` +
-          ` stroke="${fill}" stroke-width="0.7" stroke-opacity="0.9"` +
+          ` height="${(c.h * S).toFixed(1)}" rx="2" fill="${fill}"` +
+          ` fill-opacity="${c.swollen ? 0.85 : 0.42}"` +
+          ` stroke="${c.swollen ? '#fff' : fill}" stroke-width="${c.swollen ? 1.6 : 0.7}" stroke-opacity="0.9"` +
           ` transform="translate(${px(c.x)} ${py(c.y)}) rotate(${((LEAN * c.theta * 180) / Math.PI).toFixed(1)})"/>`,
       )
       .join('');
@@ -194,6 +221,9 @@ const rows = [
   ['together', `same direction, same rate: worst difference in turn over any second of the burst ` +
     `${drift.toExponential(1)} rad, and the slowest second either wheel turns is ` +
     `${slowest.toFixed(3)} rad — never backwards`, drift < 1e-12 && slowest >= 0],
+  ['heard', heard.map((h) => `${h.name} ${h.of - h.lost}/${h.of} beats swell a cat ` +
+    `(pool of ${h.median} typical, ${h.widest} at its widest)`).join(' &middot; '),
+    heard.every((h) => h.lost / h.of < 0.05)],
   ['leaves', `at ${FADE_AT}s, where the fade-out starts, ${left.on} outer cats are still on frame ` +
     `(of ${each[27].on} at the peak) and ${left.in} inner ones (of ${each[27].in}) — ` +
     `the inner wheel's arms open at ${WHEELS.inner.scale} the rate, so it does not clear`, left.in <= left.on],
@@ -227,6 +257,8 @@ console.log(`wrote out/spiral.html — spiral at ${spiral.at.toFixed(1)}s, inner
 console.log(`threaded : ${threaded.toFixed(3)} of an arm-gap`);
 console.log(`crossed  : ${cross} arm crossings on frame at 18s`);
 console.log(`together : worst turn difference ${drift.toExponential(1)} rad/s, slowest second ${slowest.toFixed(3)} rad`);
+for (const h of heard)
+  console.log(`heard    : ${h.name} — ${h.of - h.lost}/${h.of} beats swell a cat, pool ${h.median} typical / ${h.widest} widest`);
 console.log(`leaves   : at ${FADE_AT}s — ${left.on} outer still on frame, ${left.in} inner`);
 console.log(`room     : s  outer inner   o/o   i/i   o/i`);
 for (const r of each.filter((r) => r.s % 3 === 0))

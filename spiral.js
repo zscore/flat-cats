@@ -31,16 +31,26 @@
  * fighting over the same middle. It shares every number in score() below, so it
  * packs and blooms and leaves with the first — one gesture, not two.
  *
+ * The same beats that populate the wheels also swell them. Every beat picks one
+ * cat already standing in each wheel and grows it to 1.6× and back inside a
+ * second — pulse.js's envelope, the one the river and the moon's rings swell
+ * their cats with, so the three read as the same gesture in different places.
+ * The beat that lands a cat and the beat that swells one are the same beat, but
+ * never on the same cat: the pool a beat chooses from is the slots that are on
+ * frame and have finished fading in, which its own is not.
+ *
  * Which beats populate either wheel is the caller's problem — cats.js reads them
  * off the MIDI and hands them over relative to the trigger. This module never
  * sees the song.
  *
  * Like draw() in viz.js, tailBurst() in tail.js and faceBurst() in face.js this
- * is a pure function of time — no counters, no rand(), nothing carried between
- * frames. Scrub back into the burst an hour later and you get the identical
- * frame. Keep it that way: `spin` in particular is the *angle*, in closed form,
- * and not a rate anybody integrates.
+ * is a pure function of time — no counters, nothing carried between frames, and
+ * the one rand() is a hash of a beat's index rather than a number drawn at draw
+ * time. Scrub back into the burst an hour later and you get the identical frame,
+ * with the same cat swelling on the same note. Keep it that way: `spin` in
+ * particular is the *angle*, in closed form, and not a rate anybody integrates.
  */
+import { swell, PULSE } from './pulse.js';
 
 export const BURST_LENGTH = 35; // seconds, start to nothing on screen
 // Seconds into the burst that the inner wheel starts filling. Held here rather
@@ -130,6 +140,13 @@ export function slot(k, p, wheel) {
   };
 }
 
+/** Deterministic hash → [0,1). The same cat has to swell on the same note. */
+function rand(seed) {
+  let h = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
 /** How many beats have landed by `since`. Beats are ascending; binary search. */
 function arrived(beats, since) {
   let lo = 0;
@@ -143,11 +160,60 @@ function arrived(beats, since) {
 }
 
 /**
+ * The slots beat `i` may swell: the ones that are on frame *and* have finished
+ * fading in, judged against the wheel as it stood when the note was struck
+ * rather than as it stands now. They are always a run from the middle out —
+ * radius grows with the slot — so this is a count and not a set.
+ *
+ * Both halves of that matter. Frame, because the arms run a long way past the
+ * corner and most slots in the wheel are nowhere anybody can see. Faded in,
+ * because the cat a beat lands is the cat that beat would otherwise be most
+ * likely to pick, and it is drawn at nothing for the first ATTACK — a note
+ * swelling an invisible cat is a note that did nothing.
+ *
+ * `edge` is in the units slot() works in, not pixels. Exported for the checker,
+ * which counts the beats this leaves with nothing to choose from.
+ */
+export function pool(i, beats, wheel, edge) {
+  const p = score(beats[i]);
+  let n = 0;
+  while (n <= i && beats[n] <= beats[i] - ATTACK) {
+    const { r, h } = slot(n, p, wheel);
+    if (r - h > edge) break; // off-frame, and so is every slot past it
+    n++;
+  }
+  return n;
+}
+
+/**
+ * How much bigger each slot of `wheel` is at `since`, keyed by slot. Empty most
+ * of the time: a beat swells exactly one cat, and a swell is over in a second.
+ * Exported alongside slot() so the checker draws the frame that gets drawn.
+ */
+export function swelling(since, beats, wheel, edge) {
+  const grown = new Map();
+  for (let i = arrived(beats, since) - 1; i >= 0 && since - beats[i] < PULSE; i--) {
+    const extra = swell(since - beats[i]);
+    if (extra <= 0) continue;
+    const n = pool(i, beats, wheel, edge);
+    if (!n) continue;
+
+    // Two beats a third of a second apart can land on one slot; the bigger
+    // swell wins rather than the two stacking, which would put one cat through
+    // the roof every time the piece plays something dense.
+    const k = Math.floor(rand(i * 131 + 3 + wheel.seed) * n);
+    grown.set(k, Math.max(grown.get(k) ?? 0, extra));
+  }
+  return grown;
+}
+
+/**
  * One wheel's cats, at the frame `p` describes. `beats` populate it, on the
  * burst's clock; `view` is the frame it is being drawn into.
  */
 function turn(ctx, view, p, since, beats, cats, wheel) {
   const { R, cx, cy, edge } = view;
+  const grown = swelling(since, beats, wheel, edge / R);
 
   // Outermost first, so the cats nearest the middle land on top of the swarm
   // behind them. Radius grows with k, so counting k down is that order.
@@ -156,7 +222,9 @@ function turn(ctx, view, p, since, beats, cats, wheel) {
     // both the drawing and the checker; pixels happen here and nowhere else.
     const s = slot(k, p, wheel);
     const r = s.r * R;
-    const h = s.h * R;
+    // The swell is on the cat and not on its slot: it grows where it stands,
+    // so nothing around it moves and the wheel keeps its shape.
+    const h = s.h * R * (1 + (grown.get(k) ?? 0));
     if (r - h > edge) continue; // off-frame, and there is a lot of off-frame
 
     const img = cats[(k * wheel.seed + 3) % cats.length];
