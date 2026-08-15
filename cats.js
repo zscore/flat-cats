@@ -22,7 +22,7 @@ import { tailBurst, BURST_LENGTH as TAIL_LENGTH } from './tail.js';
 import { faceBurst, BURST_LENGTH as FACE_LENGTH } from './face.js';
 import { spiralBurst, BURST_LENGTH as SPIRAL_LENGTH } from './spiral.js';
 import { riverBurst, BURST_LENGTH as RIVER_LENGTH } from './river.js';
-import { checkerBurst } from './checkers.js';
+import { checkerBurst, BURST_LENGTH as CHECKER_LENGTH } from './checkers.js';
 import { twinkleBurst, BURST_LENGTH as TWINKLE_LENGTH } from './twinkle.js';
 import { moonBurst } from './moon.js';
 
@@ -135,6 +135,15 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
 function planSpiral(notes) {
   const onsets = beatOnsets(notes);
 
+  // Everything that hangs off the spiral has to fit inside the piece as well.
+  // The ground starts halfway through the spiral and outlives it, so the whole
+  // sequence is this long measured from the trigger, and a window that ends
+  // after the music does puts the finale on a silent screen. Without this the
+  // choice is made on beat count alone, and moving an earlier burst can push
+  // the whole ending off the end of the song.
+  const span = SPIRAL_LENGTH / 2 + CHECKER_LENGTH;
+  const end = scoreEnd(notes);
+
   const busy = [
     ...BURSTS.map((t) => [t, t + TAIL_LENGTH]),
     ...FACE_BURSTS.map((t) => [t, t + FACE_LENGTH]),
@@ -144,15 +153,32 @@ function planSpiral(notes) {
 
   // Candidate starts are the onsets themselves, in order, so the end of the
   // window only ever moves forward — one pass, not a search per candidate.
-  let at = 0;
-  let best = -1;
-  for (let i = 0, end = 0; i < onsets.length; i++) {
-    while (end < onsets.length && onsets[end] < onsets[i] + SPIRAL_LENGTH) end++;
-    if (!clear(onsets[i], onsets[i] + SPIRAL_LENGTH)) continue;
-    if (end - i > best) {
-      best = end - i;
-      at = onsets[i];
+  const densest = (mustClear) => {
+    let at = -1;
+    let best = -1;
+    for (let i = 0, edge = 0; i < onsets.length; i++) {
+      while (edge < onsets.length && onsets[edge] < onsets[i] + SPIRAL_LENGTH) edge++;
+      if (onsets[i] + span > end) break; // and every later candidate too
+      if (mustClear && !clear(onsets[i], onsets[i] + SPIRAL_LENGTH)) continue;
+      if (edge - i > best) {
+        best = edge - i;
+        at = onsets[i];
+      }
     }
+    return at;
+  };
+
+  // Fitting inside the piece is the harder requirement: overlapping another
+  // burst is a judgement, but finishing after the music has stopped is simply
+  // broken. So if the two cannot both be had, the overlap gives way — loudly,
+  // because it means the bursts before this one have grown into its room.
+  let at = densest(true);
+  if (at < 0) {
+    at = densest(false);
+    console.warn(
+      `spiral: no ${SPIRAL_LENGTH}s window leaves the other bursts alone and still ends ` +
+        `by ${end.toFixed(1)}s with its ${span.toFixed(1)}s of ground; overlapping instead, at ${at.toFixed(1)}s`,
+    );
   }
   return { at, beats: onsets.filter((s) => s >= at && s < at + SPIRAL_LENGTH).map((s) => s - at) };
 }
@@ -177,8 +203,13 @@ function beatOnsets(notes) {
  * the piece closes on it, so it hangs off the last note rather than off a
  * number typed here. Move the score and it follows.
  */
+/** When the last note stops sounding — the end of the piece, not of the file. */
+function scoreEnd(notes) {
+  return notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
+}
+
 function planTwinkle(notes) {
-  const end = notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
+  const end = scoreEnd(notes);
   const at = end - TWINKLE_LENGTH;
   return { at, beats: beatOnsets(notes).filter((s) => s >= at).map((s) => s - at) };
 }
