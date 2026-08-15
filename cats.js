@@ -58,6 +58,12 @@ const WALK_SPREAD = 0.34; // frame heights the whole pitch range fans over the p
 const WALK_DRIFT = 0.09; // how far off the path a quiet note may land
 const HUDDLE = 0.08; // how far a chord's own notes spread around its centre
 
+// The room the walk's path may roam in: the frame less the pitch it fans either
+// side of itself, so a chord at the top of the range lands inside the margins
+// rather than clamped flat to them. plan.js decides when the walk starts; how
+// much of the frame it gets is a placement question and stays here.
+const WALK_BOX = { x0: EDGE, x1: 1 - EDGE, y0: MARGIN + WALK_SPREAD / 2, y1: 1 - MARGIN - WALK_SPREAD / 2 };
+
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
@@ -115,19 +121,9 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
   const twinkle = planTwinkle(notes, spiral.at);
   const ctx = canvas.getContext('2d');
 
-  // Which cats have to get out of the burst's way — and out of each other's —
-  // depends on the shape of the frame, so both are settled here and again
-  // whenever that changes: not per frame, and not once at load.
-  //
-  // The order is the burst first and the cats second, because the two are not
-  // the same kind of constraint. The fan is a place a cat may not be; another
-  // cat is only a place it would rather not be. settle() is handed the burst's
-  // shapes as a veto so it cannot undo what reflow() just did.
-  //
-  // The walk is held out of it. Over that stretch the cats are placed along a
-  // path on purpose and being close together is the whole picture — turned
-  // loose on it, settle() moved 135 of 143 cats a quarter of the frame width
-  // and emptied the trail to empty the overlap count.
+  // Where everything ends up depends on the shape of the frame, so it is worked
+  // out here and again whenever that changes — not per frame, and not once at
+  // load.
   let flow = { moved: 0, dropped: 0 };
   let crowd = { nudged: 0, crowded: 0 };
   const hold = [walkStart(notes), WALK_UNTIL];
@@ -135,17 +131,7 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
     const dpr = Math.min(devicePixelRatio || 1, 2);
     canvas.width = Math.floor(innerWidth * dpr);
     canvas.height = Math.floor(innerHeight * dpr);
-    const { width: W, height: H } = canvas;
-    const plan = {
-      fan: tailClear(W, H, burstCat),
-      moon: moonClear(W, H),
-      moonAt: MOON_AT,
-      from: BURSTS[0],
-      until: VOICES_UNTIL + HANDOVER,
-      edge: EDGE,
-    };
-    flow = reflow(sprites, W, H, plan);
-    crowd = settle(sprites, W, H, { edge: EDGE, until: plan.until, blocked: blocker(W, H, plan), hold });
+    ({ flow, crowd } = place(sprites, canvas.width, canvas.height, burstCat, hold));
   }
   addEventListener('resize', resize);
   resize();
@@ -158,6 +144,34 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
     flow: () => flow,
     crowd: () => crowd,
   };
+}
+
+/**
+ * Settle every cat into a place at this frame size: clear of the burst, and
+ * then clear of the other cats.
+ *
+ * The order is the burst first and the cats second, because the two are not the
+ * same kind of constraint. The fan is a place a cat may not be; another cat is
+ * only a place it would rather not be. settle() is handed the burst's shapes as
+ * a veto so it cannot undo what reflow() just did.
+ *
+ * The walk is held out of the second pass. Over that stretch the cats are
+ * placed along a path on purpose and being close together is the whole picture
+ * — turned loose on it, settle() moved 135 of 143 cats an average of a quarter
+ * of the frame width, and emptied the trail to empty the overlap count.
+ */
+function place(sprites, W, H, burstCat, hold) {
+  const plan = {
+    fan: tailClear(W, H, burstCat),
+    moon: moonClear(W, H),
+    moonAt: MOON_AT,
+    from: BURSTS[0],
+    until: VOICES_UNTIL + HANDOVER,
+    edge: EDGE,
+  };
+  const flow = reflow(sprites, W, H, plan);
+  const crowd = settle(sprites, W, H, { edge: EDGE, until: plan.until, blocked: blocker(W, H, plan), hold });
+  return { flow, crowd };
 }
 
 /**
@@ -207,17 +221,7 @@ export function arrange(notes, cats) {
   const loVel = Math.min(...vels);
   const hiVel = Math.max(...vels);
 
-  // The walk's room is the frame less the pitch it fans either side of the
-  // path, so a chord at the top of the range lands inside the margins rather
-  // than clamped flat to them. plan.js decides when it starts; the box is a
-  // placement question and stays here.
-  const { from: walkFrom, walk } = planWalk(notes, {
-    x0: EDGE,
-    x1: 1 - EDGE,
-    y0: MARGIN + WALK_SPREAD / 2,
-    y1: 1 - MARGIN - WALK_SPREAD / 2,
-  });
-
+  const { from: walkFrom, walk } = planWalk(notes, WALK_BOX);
   const centres = chordCentres(notes, loVel, hiVel);
 
   return notes
