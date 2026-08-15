@@ -12,7 +12,8 @@
  * that is 0% foreground draws as nothing at all, which on screen reads as a
  * dropped beat rather than as a bad matte. They are dropped here, loudly.
  *
- * What comes out: public/viz/{cats/*.png, onsets.json, song.wav, manifest.json}
+ * What comes out: public/viz/{cats,tails,bodies,faces}/*.png plus onsets.json,
+ * song.wav and manifest.json
  * Re-run it to re-stage; nothing in there is hand-edited.
  */
 import { readFileSync, writeFileSync, copyFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
@@ -28,6 +29,7 @@ const CUTOUTS = resolve(arg('cutouts', 'out/cutout'));
 const REPORT = resolve(arg('report', 'out/report.json'));
 const ONSETS = resolve(arg('onsets', 'out/onsets.json'));
 const TAILS = resolve(arg('tails', 'out/tails'));
+const BODIES = resolve(arg('bodies', 'out/bodies'));
 const TAILS_JSON = resolve(arg('tails-json', 'out/tails.json'));
 const FACES = resolve(arg('faces', 'out/faces'));
 const FACES_JSON = resolve(arg('faces-json', 'out/faces.json'));
@@ -44,6 +46,7 @@ for (const [label, path, fix] of [
   ['report', REPORT, 'segment.py'],
   ['onsets', ONSETS, 'tools/onsets.mjs'],
   ['tails', TAILS, 'tails.py'],
+  ['bodies', BODIES, 'tails.py'],
   ['tails.json', TAILS_JSON, 'tails.py'],
   ['faces', FACES, 'faces.py'],
   ['faces.json', FACES_JSON, 'faces.py'],
@@ -94,20 +97,27 @@ if (!kept.length) {
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(join(OUT, 'cats'), { recursive: true });
 mkdirSync(join(OUT, 'tails'), { recursive: true });
+mkdirSync(join(OUT, 'bodies'), { recursive: true });
 
 for (const cat of kept) copyFileSync(join(CUTOUTS, `${cat.id}.png`), join(OUT, cat.file));
 
 // The tail burst is built out of these. tails.py has already done the choosing
-// and the dropping; whatever it kept is what the page gets.
+// and the dropping; whatever it kept is what the page gets. The body beside
+// each tail is that cat with the tail taken off — the burst's host wears one,
+// so the fan is the only tail it has.
 const tails = JSON.parse(readFileSync(TAILS_JSON, 'utf8')).tails.map((t) => ({
   ...t,
   file: `tails/${t.file}`,
+  body: `bodies/${t.body}`,
 }));
 if (!tails.length) {
   console.error('out/tails.json is empty — re-run tails.py, the burst needs tails');
   process.exit(1);
 }
-for (const t of tails) copyFileSync(join(TAILS, basename(t.file)), join(OUT, t.file));
+for (const t of tails) {
+  copyFileSync(join(TAILS, basename(t.file)), join(OUT, t.file));
+  copyFileSync(join(BODIES, basename(t.body)), join(OUT, t.body));
+}
 
 // The face burst needs cats that can both host a chimera and donate to one, so
 // it takes only the complete faces — two eyes, two ears, a muzzle. A cat with

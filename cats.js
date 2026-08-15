@@ -76,11 +76,11 @@ export async function createStage(canvas, notes, base = 'public/viz/') {
   const burstTail = manifest.tails
     .filter((t) => byId.has(t.id))
     .reduce((a, b) => (byId.get(b.id).coverage > byId.get(a.id).coverage ? b : a));
-  const burstCat = {
-    img: cats[manifest.cats.indexOf(byId.get(burstTail.id))],
-    root: burstTail.root,
-    heading: burstTail.heading,
-  };
+  // Its body, not its cutout: tails.py cut the tail off this one, so the fan is
+  // the only tail it has. Same canvas as the cutout, so root still points at
+  // the place the tail used to leave from.
+  const [burstBody] = await load(base, [burstTail.body]);
+  const burstCat = { img: burstBody, root: burstTail.root, heading: burstTail.heading };
 
   const sprites = arrange(notes, cats);
   const ctx = canvas.getContext('2d');

@@ -122,11 +122,11 @@ const byId = new Map(manifest.cats.map((c) => [c.id, c]));
 const burstTail = manifest.tails
   .filter((t) => byId.has(t.id))
   .reduce((a, b) => (byId.get(b.id).coverage > byId.get(a.id).coverage ? b : a));
-const burstCat = {
-  img: cats[manifest.cats.indexOf(byId.get(burstTail.id))],
-  root: burstTail.root,
-  heading: burstTail.heading,
-};
+// Its body, not its cutout: tails.py cut the tail off this one, so the fan is
+// the only tail it has. Same canvas as the cutout, so root still points at the
+// place the tail used to leave from.
+const [burstBody] = await load([burstTail.body]);
+const burstCat = { img: burstBody, root: burstTail.root, heading: burstTail.heading };
 
 // A cat can only be on screen for LIFE seconds, so the frame at time t needs
 // only the slice starting a little before t. Walk a cursor instead of scanning

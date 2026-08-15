@@ -4,11 +4,22 @@ tails.py — cut the tail out of every cat and lay it flat.
     .venv/bin/python tails.py
 
 Reads the label maps segment.py already wrote (out/parts, label 8 is "tail")
-and the mattes beside them (out/cutout), and writes out/tails/*.png: one tail
-per cat, rotated so it runs left-to-right with its thick end at the left, and
-out/tails.json describing what survived. This is a pipeline stage in the same
-sense as segment.py's second pass, which reads out/alpha — it is not a
-downstream consumer of out/, and nothing here is a source of truth.
+and the mattes beside them (out/cutout), and writes two things per cat plus
+out/tails.json describing what survived:
+
+    out/tails/*.png     the tail alone, rotated so it runs left-to-right with
+                        its thick end at the left
+    out/bodies/*.png    the same cat with that tail taken off
+
+The body is the half the tail burst needs. It hosts the fan, and until it had
+one it hosted the fan while still wearing the tail it was photographed with —
+a real tail lying under nine drawn ones, at a fixed angle, arguing with them.
+It keeps the cutout's canvas rather than being cropped to what is left, because
+`root` below is in fractions of that canvas and the page hangs the fan off it.
+
+This is a pipeline stage in the same sense as segment.py's second pass, which
+reads out/alpha — it is not a downstream consumer of out/, and nothing here is
+a source of truth.
 
 The filter is the interesting part, and it is in two halves because one is not
 enough. The numbers below cut wisps, stubs and blobs: a tail is long, thin and
@@ -34,6 +45,10 @@ TAIL = 8  # label index of "tail" in segment.py's PARTS
 MIN_ELONG = 3.1  # length / width of the blob, along its own axis
 MIN_AREA = 1500  # pixels, after keeping only the largest piece
 MAX_WIDTH = 512  # the page loads these; full-resolution fur is wasted there
+# Pixels of tail erased past the label when cutting the body. The label stops
+# on the tail's own edge, and stopping there leaves a rim of tail fur behind on
+# the body — a thin outline of the thing that was supposed to be gone.
+BLEED = 2
 
 # Scores well, is not a tail. Checked by eye on the contact sheet.
 REJECT = {
@@ -97,6 +112,24 @@ def measure(mask, body):
     )
 
 
+def debone(rgba, mask):
+    """The cat, less its tail, on the cutout's own canvas.
+
+    Two things beyond erasing the label. BLEED, because the label stops on the
+    tail's own edge and stopping there leaves a rim of tail fur behind — a thin
+    outline of the thing that was supposed to be gone. And the largest piece,
+    because taking the tail out can strand crumbs of matte that were only
+    attached to the cat through it, and they read as dirt floating beside it.
+    """
+    out = rgba.copy()
+    out[..., 3] = np.where(ndimage.binary_dilation(mask, iterations=BLEED), 0, out[..., 3])
+    body = largest_blob(out[..., 3] > 8)
+    if body is None:
+        return None
+    out[..., 3] = np.where(body, out[..., 3], 0)
+    return Image.fromarray(out)
+
+
 def trim(img):
     """Crop to what is actually opaque."""
     a = np.array(img)[..., 3] > 8
@@ -131,6 +164,7 @@ def main():
     args = ap.parse_args()
 
     (OUT / "tails").mkdir(parents=True, exist_ok=True)
+    (OUT / "bodies").mkdir(parents=True, exist_ok=True)
     kept, dropped = [], []
 
     for path in sorted((OUT / "parts").glob("*.png")):
@@ -156,21 +190,29 @@ def main():
 
         # Mask the cutout to the tail alone, then lay it flat.
         rgba = np.array(Image.open(OUT / "cutout" / f"{stem}.png").convert("RGBA"))
-        rgba[..., 3] = np.where(mask, rgba[..., 3], 0)
-        img = flatten(Image.fromarray(rgba), m["angle"])
+        img = flatten(Image.fromarray(np.dstack([rgba[..., :3], np.where(mask, rgba[..., 3], 0)])),
+                      m["angle"])
         if img is None:
             dropped.append((stem, "nothing opaque left after masking"))
             continue
 
+        # And the same cut the other way round.
+        body = debone(rgba, mask)
+        if body is None:
+            dropped.append((stem, "nothing left of the cat once its tail came off"))
+            continue
+        body.save(OUT / "bodies" / f"{stem}.png")
+
         img.save(OUT / "tails" / f"{stem}.png")
-        kept.append(dict(id=stem, file=f"{stem}.png", area=m["area"],
+        kept.append(dict(id=stem, file=f"{stem}.png", body=f"{stem}.png", area=m["area"],
                          elong=round(m["elong"], 2), root=m["root"], heading=m["heading"],
                          w=img.width, h=img.height))
 
     (OUT / "tails.json").write_text(json.dumps({"tails": kept}, indent=1) + "\n")
     for stem, why in dropped:
         print(f"dropped {stem} — {why}")
-    print(f"\nkept {len(kept)} tails → out/tails/  ({', '.join(t['id'] for t in kept)})")
+    print(f"\nkept {len(kept)} tails → out/tails/, {len(kept)} bodies → out/bodies/"
+          f"  ({', '.join(t['id'] for t in kept)})")
 
 
 if __name__ == "__main__":
