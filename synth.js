@@ -22,9 +22,17 @@
  * the sample, and a lowpass to take off the hiss. That peak is the single knob
  * that decides how melodic this sounds — see TONE.
  *
+ * OR NOT A SAMPLER AT ALL. MIX.source switches the whole upper register over to
+ * meow.js, which builds each cry from a glottal pulse and four moving formants
+ * and so never retunes or loops anything. Everything below — the mappings, the
+ * casting, the filters in TONE — belongs to the bank and goes quiet when it
+ * does. See meow.js for what is gained and what is lost.
+ *
  * Nothing here reads a recording, an onset, or a wav of the song. The score is
  * public/song/notes.json and the clock is the AudioContext.
  */
+import { synthMeow } from './meow.js';
+import { growlVoice } from './growl.js';
 
 /**
  * TONE — the melodic knob.
@@ -62,6 +70,14 @@ export const MIX = {
   // at 1 and the tone disappears between pulses; the rest is a floor that keeps
   // the pitch continuous.
   purrDepth: 0.62,
+  // What plays a note above lowHz: 'bank' is the 24 recorded cries, 'synth' is
+  // meow.js building one. The purr under lowHz is the same either way — it was
+  // never a sample of a pitch to begin with.
+  source: 'bank',
+  // And what plays one below it. 'purr' is purrVoice here; the other two are
+  // growl.js, which shares one throat between them and differs only in what it
+  // pushes through it. See there for why a meow is not an option down here.
+  low: 'purr',
   // Which of MAPPINGS below decides what plays a note. Chosen by ear against
   // the other five: one animal per part holds a line together in a way that
   // per-note nearest-pitch does not, and it is worth the extra retuning.
@@ -358,8 +374,14 @@ export function createSynth(ctx, voices, { gain = 0.5 } = {}) {
     play(note, at, voiceCount = 11, seed = 0) {
       const level = clamp(0.16 + (note.vel / 127) ** 1.6 * 0.5, 0, 0.8);
       const pan = panFor(note.voice, voiceCount);
-      return note.hz < MIX.lowHz
-        ? purrVoice(ctx, note, at, level * 1.25, pan, seed, beds)
+      if (note.hz < MIX.lowHz) {
+        const lo = level * 1.25;
+        return MIX.low === 'purr'
+          ? purrVoice(ctx, note, at, lo, pan, seed, beds)
+          : growlVoice(ctx, note, at, lo, pan, seed, beds, MIX.low);
+      }
+      return MIX.source === 'synth'
+        ? synthMeow(ctx, note, at, level, pan, seed)
         : meowVoice(ctx, note, at, level, pan, samples, seed);
     },
     master,
