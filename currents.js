@@ -21,8 +21,9 @@
  *            squiggle where that straightness would otherwise go on too long,
  *            then opening into long swings under the wave where there is room
  *   counter  the late one, set into the bends of the meander without touching
- *   top      the skinny one, along the top edge and mostly above it, which the
- *            frame does not meet until 52 seconds into the burst
+ *   top      the skinny one, diving in and out through the frame's top edge,
+ *            which the frame does not see until 52 seconds into the burst, and
+ *            which rises and falls in step with the meander when it does
  *
  * All three lean slightly nearer the river and away again as they run — the
  * drift, below. They lean *together*, which is the only reason it is affordable:
@@ -37,6 +38,7 @@
  */
 
 import { makeCourse, bessel0 } from './course.js';
+import { makeBranches } from './branches.js';
 
 const TAU = Math.PI * 2;
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -85,30 +87,50 @@ const C_LEAD = 0.9;
 
 // The top river — the third current, and the skinny one. It runs against the
 // river like the other two, right to left along the very top of the frame, and
-// like them it has no trigger of its own: it is placed at the x the frame's
-// right edge reaches T_AT seconds into the burst, and "from 52s" is that
-// placement rather than a start time. Nothing in plan.js knows it exists.
+// like them it has no trigger of its own: it is placed so that its first dip —
+// the first of it there is to see — lands T_AT seconds into the burst, and
+// "from 52s" is that placement rather than a start time. Nothing in plan.js
+// knows it exists.
 //
-// Almost all of it is above the top edge, and that is not a compromise — it is
-// the only room there is. Where the meander crests, the top of its three-lane
-// ribbon comes to within 0.074 of the frame's top edge, and a full-size cat is
-// 0.075 tall. There is one cat-height of clear water up there and the edge of
-// the screen runs through the middle of it.
+// Which end gets placed is not a detail, and it used to be the wrong one: the
+// mouth went at the x the frame reaches at T_AT, and the mouth is deliberately
+// above the top edge, so the frame met it at 52s and showed nothing until 55.
+// What is placed now is the belly, and the cats leading into it cross the edge
+// about a second ahead of it — 51.8s and 49.7s, both of which river-check prints.
 //
-// Which is what T_SCALE is for. Skinny is not only how it looks — it is what
-// makes it visible at all. The gap between the top edge and the crest is fixed,
-// so the strip of cat below the edge is the same 0.036 whatever size the cats
-// are; shrinking them to T_SCALE turns that strip from two thirds of a cat into
-// very nearly all of one. A smaller cat also has a narrower ribbon, which is
-// where the room for T_DEEP and for the drift below comes from.
+// Its bends are the meander's bends, and that is measured in the picture rather
+// than in arc. The two agree only when the amplitudes do: this course used to
+// swing 0.28 where the meander swings 0.9, so a shared 1.9 of arc covered 1.86
+// of picture against the meander's 1.53, and they slid a fifth of a bend apart
+// every bend until the top river was dipping exactly where the meander crested —
+// which was also their tightest pass, at 0.056. Spacing and phase now both come
+// off the river's own troughs, which is exact at any amplitude, and T_AMP is
+// free to sit just under the meander's own so the two bend alike as well.
+//
+// One trough is all there is to be in step with, mind — the river's mouth is at
+// 57.8s and this is not in shot until 52. Past that it carries the rhythm alone.
+//
+// A third of it is above the top edge, and where it is up there that is not a
+// compromise — it is the only room there is. Where the meander crests, the top
+// of its three-lane ribbon comes to within 0.074 of the frame's top edge, and a
+// full-size cat is 0.075 tall — one cat-height of clear water up there, with the
+// edge of the screen running through the middle of it.
+//
+// Which is what T_SCALE is for. Skinny is not only how it looks — a narrower
+// ribbon is where the room for the drift below comes from, and where some of the
+// clearance to that crest comes from. The rest of it is bought by being in step,
+// which climbs this course away from the meander exactly where the meander
+// climbs: the pass is 0.112, twice what it was out of step.
 //
 // T_DEEP is the dip: from the top edge down to the deepest the centre line goes,
-// and it is the constant the crest actually constrains. river-check measures
-// what is left over.
+// and it is the constant the crest actually constrains. The belly of it now
+// comes a good way below the meander's own crest, so the two read as one
+// picture rather than as a strip along the edge. river-check measures what is
+// left over.
 const T_LANES = 1;
-const T_AT = 52; // seconds into the burst that the frame first meets it
-const T_AMP = 0.28; // heading amplitude — how hard it dives in and out of shot
-const T_DEEP = 0.014; // how far below the frame's top edge the deepest dip goes
+const T_AT = 52; // seconds into the burst that its first dip arrives
+const T_AMP = 0.8; // heading amplitude — the meander's own 0.9, held a shade under
+const T_DEEP = 0.28; // how far below the frame's top edge the deepest dip goes
 const T_SCALE = 0.6; // cat size, against the full-size cats on every other course
 const T_LEAD = 0.3; // x past the last frame, so the source is never in shot
 const T_VEIL = 0.03; // how far in a cat comes before it is fully faded up
@@ -276,18 +298,75 @@ function under(u) {
 }
 
 /**
+ * Where the meander bottoms out, in x — every local maximum of the river's y
+ * past `from`, the head of the meander and so past everything else that could
+ * hold one. Their spacing is how far a bend of it carries across the picture and
+ * their positions are the phase, so both halves of being in step come off the
+ * points, which keeps this file free of the river's constants as well as of its
+ * coordinates.
+ */
+function troughs(river, from) {
+  const out = [];
+  for (let i = 1; i < river.n; i++)
+    if (river.xs[i] > from && river.ys[i] > river.ys[i - 1] && river.ys[i] >= river.ys[i + 1]) out.push(river.xs[i]);
+  return out;
+}
+
+/**
+ * The top river, placed off the meander's troughs — see the T_ block above for
+ * why it is those and not the meander's arc wavelength.
+ *
+ * Running against the river means integrating from the *right* hand end, so the
+ * source is off to the right where the frame never gets to and the frame meets
+ * the mouth first; and the base heading being π puts the deepest point of the
+ * course at u = 0, so the origin is simply the depth a dip is wanted at.
+ */
+function makeTopRiver(river, { snakeX, top, rightEdgeAt, burst }) {
+  const bT = bessel0(T_AMP);
+  const dips = troughs(river, snakeX);
+  const step = dips[1] - dips[0]; // one bend, across the picture
+  const wave = step / bT; // and the same bend, as arc of this course
+  // The dip that lands on the moment is the nearest of the meander's own to it:
+  // the phase is not free, so T_AT is honoured to within half a bend — three and
+  // a half seconds — and being in step wins the argument. As it falls out, the
+  // nearest trough is 0.2s from the 52 asked for.
+  const seen = rightEdgeAt(T_AT);
+  const first = dips.reduce((a, b) => (Math.abs(b - seen) < Math.abs(a - seen) ? b : a));
+  // The mouth is then the crest half a bend the near side of that, where the
+  // curve is highest and so off the top of the frame — the cats fade out up
+  // there rather than in mid-air, in shot. The source is however many whole
+  // bends the far side it takes to clear the last frame, and whole is what keeps
+  // every other dip on a trough too.
+  const bends = Math.ceil((rightEdgeAt(burst) + T_LEAD - first) / step);
+  const course = makeCourse(
+    (u) => Math.PI + T_AMP * Math.sin((TAU * u) / wave),
+    (bends + 0.5) * wave,
+    first + bends * step,
+    top + T_DEEP,
+    T_LANES,
+  );
+  // The two things that make it the skinny one. `veil` fades its cats up as they
+  // come into shot rather than letting the top edge cut them off, and `scale`
+  // draws them smaller than the cats on every other course. No other course
+  // carries either.
+  course.veil = T_VEIL;
+  course.scale = T_SCALE;
+  return course;
+}
+
+/**
  * Build the currents that run alongside `river`.
  *
  * `marks` is where the river's own stretches begin and end, in its coordinates:
  * `snakeX`/`snakeY` the head of the meander, `teethX` the end of the right
  * angles, `base` the height of their floor, `top` the frame's top edge,
- * `snakeLen` the meander's wavelength, `rightEdgeAt(s)` where the frame's
- * right-hand edge has got to s seconds in, and `burst` how long that pan lasts.
+ * `rightEdgeAt(s)` where the frame's right-hand edge has got to s seconds in,
+ * and `burst` how long that pan lasts.
  * Everything below is measured off those, which is what keeps this file free of
  * typed-in coordinates.
  */
 export function makeCurrents(river, marks) {
-  const { snakeX, snakeY, teethX, base, top, snakeLen, rightEdgeAt, burst } = marks;
+  const { snakeX, snakeY, teethX, base, top, rightEdgeAt, burst } = marks;
 
   // A lead past the mouth of the meander, across the flow from the line it
   // leaves on, and long enough to run back past where the meander began.
@@ -309,39 +388,13 @@ export function makeCurrents(river, marks) {
     C_LANES,
   );
 
-  // The top river. Running against the river means integrating from its *right*
-  // hand end, so the mouth — the end the cats fade out at — is the one that
-  // lands at the x the frame reaches at T_AT, and the source is away off to the
-  // right where the frame never gets to at all.
-  //
-  // Two things fall out of the base heading being π. The deepest point of the
-  // whole course is now u = 0, which is that unreachable right-hand end, so the
-  // origin is simply the depth the dips are wanted at. And the mouth would
-  // otherwise land wherever the arithmetic left it — in mid-air, in shot,
-  // visibly fading cats out of nothing from 52s to 60s. So the arc is rounded up
-  // to a half-odd number of wavelengths, which is exactly where the curve is at
-  // its highest, and the mouth goes off the top of the frame instead. Rounded
-  // *up*, so the course only ever reaches further right, where nothing sees it —
-  // rounding down would pull the mouth in and start it late.
-  const bT = bessel0(T_AMP);
-  const span = (rightEdgeAt(burst) + T_LEAD - rightEdgeAt(T_AT)) / bT;
-  const arc = (Math.ceil(span / snakeLen - 0.5) + 0.5) * snakeLen;
-  const topX = rightEdgeAt(T_AT) + arc * bT;
-  const topRiver = makeCourse(
-    (u) => Math.PI + T_AMP * Math.sin((TAU * u) / snakeLen),
-    arc,
-    topX,
-    top + T_DEEP,
-    T_LANES,
-  );
-  // The two things that make it the skinny one. `veil` fades its cats up as they
-  // come into shot rather than letting the top edge cut them off, and `scale`
-  // draws them smaller than the cats on every other course. No other course
-  // carries either.
-  topRiver.veil = T_VEIL;
-  topRiver.scale = T_SCALE;
+  // The branches are built off the under-river *before* it leans, and leaned
+  // with it after, so a root sits on the same point of the same course either
+  // way. Leaning is a function of x alone and a branch stands nearly still in x,
+  // so it moves very nearly bodily and stays attached.
+  const branches = makeBranches(river, underRiver, { top, rightEdgeAt });
 
-  // All three lean together, which is the one thing that keeps their own gaps
+  // They all lean together, which is the one thing that keeps their own gaps
   // where they were. The river is not in this list and does not move.
-  return [counter, underRiver, topRiver].map(lean);
+  return [counter, underRiver, makeTopRiver(river, marks), ...branches].map(lean);
 }
