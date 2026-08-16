@@ -13,6 +13,37 @@ it, so the search filter is never the only safeguard.
 
 Per-file provenance is in [CREDITS.md](CREDITS.md) and `images/credits.json`.
 
+The 6 files in `sounds/` are CC0 or public domain on the same terms, listed in
+[SOUNDS.md](SOUNDS.md). The meow pool `fetch-meows.mjs` builds is CC0-only and
+licence-checked twice, but it is 100 MB and stays out of the repo — rebuild it
+rather than looking for it here.
+
+### The score, and the audio
+
+**Neither the MIDI nor any rendered audio is in this repo, and that is
+deliberate** — `.gitignore` excludes `/*.mid`, `/*.wav`, `/*.mp3` and
+`public/song/`. Unlike `images/` and `sounds/`, nothing here has established
+what may be done with them, so they are local inputs only.
+
+The piece is built on Easley Blackwood's Etude in 17 notes, from *Twelve
+Microtonal Etudes for Electronic Music Media*, Op. 28 (1979–80). To run the
+audio side you supply the score yourself, as `Blackwood17notes.mid` at the
+root:
+
+<https://www.musanim.com/BlackwoodMicrotonalEtudes/>
+
+That page is Stephen Malinowski's Music Animation Machine visualisation of the
+etudes; the MIDI files on it were made by Matthew Sheeran. **The page states no
+licence or terms of use**, and says nothing about permission from Blackwood or
+his publisher. The composition itself is in copyright. Two separate rights
+therefore sit on that file — Blackwood's in the work, Sheeran's in the
+transcription — and neither has been cleared here. Anything you render from it
+is a derivative of both; publishing such a render is a decision you are making
+for yourself.
+
+In `Blackwood17notes.mid` a note number is a 17-EDO degree, not a semitone;
+`tools/midi.mjs` reads it on that basis.
+
 ## Setup
 
 ```sh
