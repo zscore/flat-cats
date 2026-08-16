@@ -275,12 +275,12 @@ const MARKS = {
   snakeY: RIVER.ys[Math.round(SN_AT / STEP)],
   teethX: RIVER.xs[Math.round(SQ_OUT / STEP)],
   base: BASE,
-  // The frame's top edge, and its wavelength: a current that runs along the top
-  // of the frame needs to know where that edge is, and one that means to stay
-  // out of step with the meander needs to know what it is staying out of step
-  // with. Both are the river's, so both are handed over rather than copied.
+  // The frame's top edge: a current that runs along the top of the frame needs
+  // to know where that edge is. The meander's wavelength used to be handed over
+  // beside it, for the top river to stay out of step with; that course is in
+  // step now, and reads the bends off the river's own points instead — the arc
+  // wavelength was never the one that shows.
   top: BASE - DROP - 0.5,
-  snakeLen: SNAKE_LEN,
   // Where the frame's right-hand edge has got to, `s` seconds into the burst.
   // A current placed at this x is one the frame first meets at second s — which
   // is how a current gets a moment without getting a trigger of its own. The

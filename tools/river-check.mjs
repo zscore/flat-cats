@@ -38,7 +38,7 @@ const river = await import('../river.js');
 // The river's shape lives in river.js and the currents' in currents.js. Both
 // are read the same way, and which file a constant came from is not something
 // the audit cares about — only that it is the one the module actually uses.
-const src = ['../river.js', '../currents.js']
+const src = ['../river.js', '../currents.js', '../branches.js']
   .map((f) => readFileSync(new URL(f, import.meta.url), 'utf8'))
   .join('\n');
 
@@ -58,6 +58,9 @@ const arr = (name) => {
   return eval(m[1]);
 };
 const SQUIGGLES = arr('SQUIGGLES');
+// The branch tables are one-liners rather than a column of records, so they need
+// their own reader — same idea, still the module's own source.
+const list = (name) => eval(src.match(new RegExp(`^const ${name} = (\\[[^\\]]*\\]);`, 'm'))[1]);
 
 const K = Object.fromEntries(
   ['PAN', 'FLOW', 'CAT_H', 'GAP', 'LANES', 'LANE', 'DROP', 'WAVE_ARC', 'WAVE_AMP',
@@ -176,7 +179,7 @@ const squiggle = (u, s) => {
 };
 const cArc = K.H_ARC + (sqX + K.C_LEAD - (x0 - K.C_LEAD)) / bessel0((K.C_TIGHT + K.C_OPEN) / 2);
 const cn = Math.ceil(cArc / STEP);
-const cxs = [], cys = [];
+const cxs = [], cys = [], cths = [];
 // The hook integrated alone, so the course can be started far enough back that
 // the hook ends where the run used to begin — the same trick currents.js uses.
 const hook = (u) => Math.PI + K.H_TURN * (1 - smooth(u / K.H_ARC));
@@ -187,13 +190,14 @@ for (let i = 0, hn = Math.ceil(K.H_ARC / STEP); i <= hn; i++) { const t = hook(i
   for (let i = 0; i <= cn; i++) {
     cxs.push(x); cys.push(y);
     let u = i * STEP;
-    if (u < K.H_ARC) { const t = hook(u); x += Math.cos(t) * STEP; y += Math.sin(t) * STEP; continue; }
+    if (u < K.H_ARC) { const t = hook(u); cths.push(t); x += Math.cos(t) * STEP; y += Math.sin(t) * STEP; continue; }
     u -= K.H_ARC;
     const open = ramp(u, K.C_AT, K.C_AT + K.C_WIDE);
     const amp = K.C_TIGHT + (K.C_OPEN - K.C_TIGHT) * open;
     const lean = (K.C_RISE / K.C_WIDE) * (ramp(u, K.C_AT, K.C_AT + 0.25) - ramp(u, K.C_AT + K.C_WIDE - 0.25, K.C_AT + K.C_WIDE));
     const th = Math.PI + amp * Math.sin((TAU * (u + K.C_PHASE)) / K.C_LEN) + lean
       + SQUIGGLES.reduce((a, s) => a + squiggle(u, s), 0);
+    cths.push(th);
     x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
   }
 }
@@ -208,33 +212,75 @@ for (let i = 0, hn = Math.ceil(K.H_ARC / STEP); i <= hn; i++) { const t = hook(i
 const top = camY - 0.5;
 const bT = bessel0(K.T_AMP);
 const rightEdgeAt = (s) => x0 - K.CAT_H + K.PAN * s;
-// Integrated from its right-hand end, and its arc rounded up to a half-odd
-// number of the meander's wavelengths so the mouth lands on a high point.
-const tSpan = (rightEdgeAt(river.BURST_LENGTH) + K.T_LEAD - rightEdgeAt(K.T_AT)) / bT;
-const tArc = (Math.ceil(tSpan / K.SNAKE_LEN - 0.5) + 0.5) * K.SNAKE_LEN;
-const topX = rightEdgeAt(K.T_AT) + tArc * bT;
+// The meander's troughs, found here the way currents.js finds them but in this
+// file's own river: every local maximum of y past the head of the meander. Their
+// spacing is one bend of it across the picture and their positions are the phase
+// the top river locks onto, so the whole placement below comes off this list.
+const tDips = [];
+for (let i = 1; i < n; i++) if (xs[i] > snX && ys[i] > ys[i - 1] && ys[i] >= ys[i + 1]) tDips.push(xs[i]);
+const tStep = tDips[1] - tDips[0];
+const tWave = tStep / bT;
+// Integrated from its right-hand end, starting on the trough nearest the moment
+// it is wanted seen and running a half-odd number of bends, so that every dip
+// lands on a trough and the mouth lands on a high point.
+const tWant = rightEdgeAt(K.T_AT);
+const tOn = tDips.reduce((a, b) => (Math.abs(b - tWant) < Math.abs(a - tWant) ? b : a));
+const tBends = Math.ceil((rightEdgeAt(river.BURST_LENGTH) + K.T_LEAD - tOn) / tStep);
+const tArc = (tBends + 0.5) * tWave;
+const topX = tOn + tBends * tStep;
 const tn = Math.ceil(tArc / STEP);
 const txs = [], tys = [];
 {
   let x = topX, y = top + K.T_DEEP;
   for (let i = 0; i <= tn; i++) {
     txs.push(x); tys.push(y);
-    const th = Math.PI + K.T_AMP * Math.sin((TAU * i * STEP) / K.SNAKE_LEN);
+    const th = Math.PI + K.T_AMP * Math.sin((TAU * i * STEP) / tWave);
     x += Math.cos(th) * STEP; y += Math.sin(th) * STEP;
   }
 }
 // What the top river is actually worth to look at: how far its belly comes below
 // the frame's top edge, and how much of its length is in shot at all.
 const tHalf = (K.CAT_H * K.T_SCALE) / 2;
-// When the frame's right edge first reaches the course, and where its mouth
-// ends up — the two things the arc-rounding above is there to get right.
-const tFirst = (Math.min(...txs) + K.CAT_H) / K.PAN;
+// The second the frame's right edge reaches an x, which is the clock T_AT is on.
+const secs = (x) => (x - x0 + K.CAT_H) / K.PAN;
+// When the first dip arrives, when the first cat of it actually crosses the top
+// edge — the dip's leading cats show about a second before the dip itself — and
+// where the mouth ends up, which the half-odd bend count is there to get right.
+const tArrives = secs(tOn);
+const tShows = secs(Math.min(...txs.filter((_, i) => tys[i] + tHalf > top)));
 const tMouth = tys[tys.length - 1] + tHalf;
+// Where the top river actually bottoms out, read off its points rather than off
+// the arithmetic that placed it — the two are only the same if the origin really
+// is a dip, which is the assumption the whole placement rests on. Measured
+// against the meander's troughs, and only over the stretch where there is a
+// meander to be in step with: past the river's mouth this course carries the
+// rhythm on by itself, and there is nothing there to be out of step with.
+const tPeaks = [];
+for (let i = 1; i < tn; i++) if (tys[i] > tys[i - 1] && tys[i] >= tys[i + 1]) tPeaks.push(txs[i]);
+const tShared = tPeaks.filter((x) => x > tDips[0] - tStep / 2 && x < tDips[tDips.length - 1] + tStep / 2);
+const tOff = Math.max(0, ...tShared.map((x) => Math.min(...tDips.map((d) => Math.abs(d - x)))));
 const tDip = Math.max(...tys) + tHalf - top;
 const tSeen = tys.filter((y) => y + tHalf > top).length / tys.length;
 
-// All three small courses lean together; the river does not lean at all.
+// ------------------------------------------------------------- the branches --
+
+// The one place this file calls into the modules instead of rebuilding them.
+// What it is checking about a branch is *where the placement logic puts it* —
+// which gap it picked, whether the turn stands it up in time — and a second copy
+// of that logic here would be checking the copy. The shapes it is built on, the
+// river and the under-river, are still this file's own rebuilds, so the constants
+// are still audited independently. Built before the lean and leaned with the
+// rest, exactly as currents.js orders it.
+const { makeBranches } = await import('../branches.js');
+const BRANCHES = makeBranches(
+  { xs, ys, ths, n },
+  { xs: cxs, ys: cys, ths: cths, n: cn },
+  { top, rightEdgeAt },
+);
+
+// All the small courses lean together; the river does not lean at all.
 lean(bxs, bys); lean(cxs, cys); lean(txs, tys);
+for (const b of BRANCHES) lean(b.xs, b.ys);
 
 // Ribbon half-widths: two courses just touch when their centre lines close to
 // the sum of these, so anything above zero below is real daylight. With three
@@ -248,6 +294,14 @@ const COURSES = [
   // starts after it. Everything else about the course is measured whole.
   { name: 'under', xs: cxs, ys: cys, half: half(K.C_LANES), inShot: Math.round(K.H_ARC / STEP) },
   { name: 'top', xs: txs, ys: tys, half: half(K.T_LANES) * K.T_SCALE },
+  // A branch's root sits on the under-river on purpose — it is the one place in
+  // the picture where two courses may touch — so its clearances are measured
+  // from where it has finished turning away, which is what `from` carries. Both
+  // kinds leave through an edge, so neither is measured against the floor.
+  ...BRANCHES.map((b, i) => ({
+    name: `branch${i}`, xs: [...b.xs], ys: [...b.ys],
+    half: half(1) * b.scale, from: b.from, leaves: true,
+  })),
 ];
 // ------------------------------------------------------------------ floors --
 
@@ -257,7 +311,7 @@ const COURSES = [
 // of the picture, and that is a thing you only see by looking. Measured from the
 // bottom of the ribbon, and only where a course is actually in shot.
 const floor = camY + 0.5;
-const floors = COURSES.filter((c) => c.name !== 'river').map((c) => {
+const floors = COURSES.filter((c) => c.name !== 'river' && !c.leaves).map((c) => {
   let worst = Infinity, where = 0;
   for (let i = c.inShot ?? 0; i < c.xs.length; i++) {
     const g = floor - (c.ys[i] + c.half);
@@ -271,8 +325,8 @@ const floorGap = Math.min(...floors.map(([, g]) => g));
 
 function apart(p, q) {
   let nearest = Infinity;
-  for (let j = 0; j < q.xs.length; j++)
-    for (let i = 0; i < p.xs.length; i++) {
+  for (let j = q.from ?? 0; j < q.xs.length; j++)
+    for (let i = p.from ?? 0; i < p.xs.length; i++) {
       const dx = p.xs[i] - q.xs[j];
       if (dx > 1.4 || dx < -1.4) continue;
       const d = dx * dx + (p.ys[i] - q.ys[j]) ** 2;
@@ -285,9 +339,21 @@ for (let i = 0; i < COURSES.length; i++)
   for (let j = i + 1; j < COURSES.length; j++)
     pairs.push([`${COURSES[i].name}/${COURSES[j].name}`, apart(COURSES[i], COURSES[j])]);
 const clearGap = Math.min(...pairs.map(([, g]) => g));
+// Seven branches make twenty-one more pairs, and a row listing every one of them
+// is a paragraph nobody reads that pushes the picture off the bottom of the page.
+// The branches are all the same kind of thing, so what is worth printing is the
+// worst of them and which pair it was; the named courses stay listed one by one.
+const shown = (g) => (Number.isFinite(g) ? g.toFixed(3) : 'never near');
+const sprigPairs = pairs.filter(([nm, g]) => nm.includes('branch') && Number.isFinite(g));
+const worstSprig = sprigPairs.reduce((a, b) => (b[1] < a[1] ? b : a), ['none', Infinity]);
+const clearRow = [
+  ...pairs.filter(([nm]) => !nm.includes('branch')).map(([nm, g]) => `${nm} ${shown(g)}`),
+  `${BRANCHES.length} branches, tightest ${worstSprig[0]} ${shown(worstSprig[1])}`,
+].join(' · ');
 // The pairs that drift together, and so should be unmoved by it: everything not
 // involving the river. Named rather than counted, so the claim reads as a claim.
-const leanPairs = pairs.map(([nm]) => nm).filter((nm) => !nm.includes('river/')).join(', ');
+const leanPairs = pairs.map(([nm]) => nm)
+  .filter((nm) => !nm.includes('river/') && !nm.includes('branch')).join(', ');
 
 // ------------------------------------------------------------------ untied --
 
@@ -352,6 +418,13 @@ const py = (y) => ((y - yLo) * SCALE).toFixed(1);
 const course = xs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(ys[i])}`).join('');
 const counter = bxs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(bys[i])}`).join('');
 const beneath = cxs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(cys[i])}`).join('');
+// The branches, drawn at their own width — they are the skinny ones twice over,
+// single file and scaled down again on top of that.
+const sprigs = BRANCHES.map((b) =>
+  `<path d="${[...b.xs].map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(b.ys[i])}`).join('')}" fill="none"` +
+  ` stroke="#d98fd0" stroke-width="${K.CAT_H * SCALE * b.scale}" stroke-opacity="0.3" stroke-linecap="round"/>` +
+  `<path d="${[...b.xs].map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(b.ys[i])}`).join('')}" fill="none"` +
+  ` stroke="#d98fd0" stroke-width="1.3"/>`).join('');
 const overhead = txs.map((x, i) => `${i ? 'L' : 'M'}${px(x)} ${py(tys[i])}`).join('');
 const MOMENTS = 12;
 let frames = '';
@@ -380,23 +453,40 @@ const rows = [
     tightest >= inside],
   // A pair that never comes within the prune window has no nearest approach to
   // report, which is not a failure — it is the widest possible pass.
-  ['clear', pairs.map(([nm, g]) => `${nm} ${Number.isFinite(g) ? g.toFixed(3) : 'never near'}`).join(' · ') +
+  ['clear', clearRow +
     ` — frame-heights of daylight between ribbons${clearGap <= 0 ? ', SOMETHING TOUCHES' : ''}`,
     clearGap > 0],
   // The top river is meant to be mostly out of shot, so the failure here is not
   // "some of it is off-screen" — it is none of it ever coming in.
+  ['sprouts', `${BRANCHES.length} of ${list('CLIMBS').length + list('DIVES').length} asked for — ` +
+    BRANCHES.map((b) => `${b.ys[b.n] < b.ys[0] ? 'climb' : 'dive'}@${((b.xs[0] - x0 + K.CAT_H) / K.PAN).toFixed(0)}s`).join(' · ') +
+    `. A branch whose root falls off the end of the under-river is not built, and silently ` +
+    `having six where the table asks for seven is exactly the kind of thing this row is for`,
+    BRANCHES.length === list('CLIMBS').length + list('DIVES').length],
   ['hangs', `the top river dips ${tDip.toFixed(3)} below the frame's top edge — ` +
     `${(100 * tDip / (K.CAT_H * K.T_SCALE)).toFixed(0)}% of one of its own ${K.T_SCALE}-size cats — ` +
-    `and is in shot for ${(100 * tSeen).toFixed(0)}% of its length, on the meander's own ${K.SNAKE_LEN} wavelength`,
+    `and is in shot for ${(100 * tSeen).toFixed(0)}% of its length, every ${tStep.toFixed(2)} of x`,
     tDip > 0.01 && tSeen > 0.1],
+  // Being in step is a claim about the picture and it fails quietly, so it is
+  // measured rather than argued. Sharing the wavelength is the half that holds
+  // everywhere; the phase is only checkable where the two overlap, which is one
+  // trough — the meander has two and the first is passed before this course is
+  // in shot. A row saying "1 dip, 0.000 out" is thin, and it is the whole of
+  // what there is to say, which is why it says how many.
+  ['in step', `the top river bends every ${tStep.toFixed(3)} of x, which is the meander's own bend ` +
+    `rather than its arc; ${tShared.length} of its dips fall over the meander, the furthest ` +
+    `${tOff.toFixed(3)} from a trough of it — ${tOff < 0.05 ? 'they go down together' : 'THEY SLIDE APART'}. ` +
+    `Past the river's mouth it carries the rhythm on alone`,
+    tOff < 0.05 && tShared.length > 0],
   // Two silent failures live in the top river's placement, and neither shows up
-  // anywhere else: it is meant to arrive exactly at T_AT, and its mouth is meant
-  // to be off the top of the frame. Both come out of arithmetic — the arc is
-  // rounded to a half-odd number of wavelengths to land the mouth on a high
-  // point — so both break quietly the moment a constant moves.
-  ['meets', `the frame first reaches it at ${tFirst.toFixed(1)}s against T_AT ${K.T_AT}, and its mouth sits ` +
+  // anywhere else: the first of it there is to see is meant to arrive at T_AT,
+  // and its mouth is meant to be off the top of the frame. Both come out of
+  // arithmetic — a half-odd number of bends from a trough lands the mouth on a
+  // high point — so both break quietly the moment a constant moves.
+  ['meets', `its first dip arrives at ${tArrives.toFixed(1)}s against T_AT ${K.T_AT}, with the head of ` +
+    `that dip over the edge at ${tShows.toFixed(1)}s, and its mouth sits ` +
     `${(top - tMouth).toFixed(3)} above the top edge — ${tMouth < top ? 'out of shot' : 'IN SHOT, cats fade out in mid-air'}`,
-    Math.abs(tFirst - K.T_AT) < 0.2 && tMouth < top],
+    Math.abs(tArrives - K.T_AT) < tStep / K.PAN / 2 && tMouth < top],
   // The drift is bounded by the pair it can close hardest, and the pair it can
   // close hardest is a small course against the river, which does not drift.
   ['drifts', `the small courses lean ${K.DRIFT} either way over ${K.DRIFT_LEN} of x, together rather ` +
@@ -422,14 +512,16 @@ writeFileSync(new URL('../out/river.html', import.meta.url),
   `<path d="${counter}" fill="none" stroke="#e0864a" stroke-width="1.5"/>` +
   `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="${K.CAT_H * SCALE * K.C_LANES}"` +
   ` stroke-opacity="0.25" stroke-linecap="round"/>` +
-  `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="1.5"/>` +
+  `<path d="${beneath}" fill="none" stroke="#6fce8f" stroke-width="1.5"/>${sprigs}` +
   `<path d="${overhead}" fill="none" stroke="#c98ae0" stroke-width="${K.CAT_H * SCALE * K.T_LANES}"` +
   ` stroke-opacity="0.25" stroke-linecap="round"/>` +
   `<path d="${overhead}" fill="none" stroke="#c98ae0" stroke-width="1.5"/>${frames}</svg>` +
-  `<figcaption>blue is the river, three cats abreast; orange is the counter-river meshed into ` +
+  `<figcaption>pink are the branches off the green river — three climbing the roofed gaps `+
+  `between a tooth's own two risers and out of the top, four diving out of the bottom. `+
+  `blue is the river, three cats abreast; orange is the counter-river meshed into ` +
   `the meander; green is the under-river, which runs the whole way before it — tight under the ` +
   `right angles, opening out under the wave. both counter-currents run right to left, single ` +
-  `file. purple is the top river, which runs left to right like the river and spends most of ` +
+  `file. purple is the top river, which runs right to left with them and spends half of ` +
   `its length above the frame's top edge — the stretches inside a gold box are the only ones ` +
   `ever seen. bands are drawn at their real width. ` +
   `gold boxes are the frame at ${MOMENTS} moments; anything outside one is off-screen then.` +
@@ -442,9 +534,10 @@ console.log(`floors : ${floors.map(([nm, g, t]) => `${nm} ${g.toFixed(3)} at ${t
 console.log(`untied : ${bad} self-intersections`);
 console.log(`steady : ${speeds}`);
 console.log(`wide   : tightest radius ${tightest.toFixed(3)} vs inside lane ${inside.toFixed(3)}`);
-console.log(`clear  : ${pairs.map(([nm, g]) => `${nm} ${Number.isFinite(g) ? g.toFixed(3) : 'never near'}`).join(' · ')}`);
-console.log(`hangs  : top river dips ${tDip.toFixed(3)} below the top edge, in shot for ${(100 * tSeen).toFixed(0)}% of its length` +
-  `, on the meander's own ${K.SNAKE_LEN} wavelength`);
-
-console.log(`meets  : first in shot at ${tFirst.toFixed(1)}s (T_AT ${K.T_AT}), mouth ${(top - tMouth).toFixed(3)} above the top edge`);
+console.log(`clear  : ${clearRow}`);
+console.log(`sprouts: ${BRANCHES.length}/${list('CLIMBS').length + list('DIVES').length} built — ` +
+  BRANCHES.map((b) => `${b.ys[b.n] < b.ys[0] ? 'climb' : 'dive'}@${((b.xs[0] - x0 + K.CAT_H) / K.PAN).toFixed(0)}s`).join(' '));
+console.log(`hangs  : top river dips ${tDip.toFixed(3)} below the top edge, in shot for ${(100 * tSeen).toFixed(0)}% of its length`);
+console.log(`in step: bends every ${tStep.toFixed(3)} of x; ${tShared.length} dips over the meander, furthest ${tOff.toFixed(3)} from a trough`);
+console.log(`meets  : first dip at ${tArrives.toFixed(1)}s (T_AT ${K.T_AT}), over the edge at ${tShows.toFixed(1)}s, mouth ${(top - tMouth).toFixed(3)} above the top edge`);
 console.log(`drifts : small courses lean ${K.DRIFT} either way over ${K.DRIFT_LEN} of x (${leanPairs} hold their gap)`);
